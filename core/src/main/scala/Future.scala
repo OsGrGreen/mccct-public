@@ -8,12 +8,16 @@ import scala.util.{Try, Success, Failure}
 import gears.async
 import gears.async.default.given
 
+given rootTask: Task = new Task(null) {
+  def run() = ???
+}
+
 object Future {
 
-  def apply[T](body: Task ?=> T)(using async.Async): Future[T] =
+  def apply[T](body: Task ?=> T)(using a: async.Async, parent: Task): Future[T] =
     val p = async.Future.Promise[T]()
     val taskController = async.Future.Promise[Boolean]()
-    val task = new Task {
+    val task = new Task(parent) {
       def run() =
         taskController.awaitResult  // wait for scheduler to let the task start
         // using a promise is enough, since a task is started only once
@@ -28,8 +32,9 @@ object Future {
 
 }
 
-abstract class Task(init: Boolean = true) extends Runnable {
+abstract class Task(val parent: Task, init: Boolean = true) extends Runnable {
   val ready = AtomicBoolean(init)
+  final def isRoot = parent == null
   final def isReady(): Boolean = ready.get()
   def run(): Unit
 }
