@@ -18,6 +18,7 @@ object Future {
       val endChild =  new Task(parent, isEnd = true) {
         def run() = {
           childController.awaitResult
+          Scheduler.finish()
         }
       }
       Thread.ofVirtual().start(endChild)
@@ -34,6 +35,7 @@ object Future {
         val result = body(using this)
         submitChild(this) //Schedule the end child before completing this future. It seems to behave more consistently
         p.complete(Success(result))
+        Scheduler.finish()
     }
     // start task on virtual thread
     Thread.ofVirtual().start(task)
@@ -61,7 +63,7 @@ class Future[T](underlying: async.Future[T]) {
     val taskController = async.Future.Promise[Boolean]()
 
     // inform CCT scheduler --> should move task to ready queue
-    Scheduler.submit(task, taskController)
+    Scheduler.submit(task, taskController, false)
 
     // wait for scheduler to resume task
     taskController.awaitResult
@@ -74,7 +76,7 @@ object Scheduler {
   type Controller = async.Future.Promise[Boolean]
 
   private var done = false
-  private var cnt = 1
+  private var cnt = 0
   private val lock: Lock = new ReentrantLock
   private val queueChange = lock.newCondition()
   private val termination = lock.newCondition()
@@ -84,8 +86,7 @@ object Scheduler {
 
   private var schedule: List[String] = List()
 
-  def start(initCnt: Int, initTargetSchedule: List[String]) =
-    cnt = initCnt
+  def start(initTargetSchedule: List[String] = List()) =
     targetSchedule = initTargetSchedule
     val shouldFollow = !targetSchedule.isEmpty
     val schedulerTask = new Runnable {
@@ -97,10 +98,15 @@ object Scheduler {
               println("scheduler waiting for change in task queue...")
               queueChange.awaitUninterruptibly()
             }
+            if cnt == 0 && readyTasks.size == 0 then
+              done = true
+              termination.signal()
+              return 
+                
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
 
-            val (task, ctrl) = if shouldFollow then
+            val (task, ctrl) = if shouldFollow && !targetSchedule.isEmpty then
               followSchedule()
             else
               val tmp = readyTasks.head
@@ -108,11 +114,6 @@ object Scheduler {
               tmp
 
             println(s"scheduler signalled (cnt=$cnt) with first task: ${task.toString()}")
-
-            cnt -= 1
-            if cnt == 0 then
-              done = true
-              termination.signal() // signal main thread
 
             // let task start
             println(s"scheduler signalling task $task to continue")
@@ -147,13 +148,24 @@ object Scheduler {
       schedule = schedule.reverse
       lock.unlock()
 
-  def submit(task: Task, taskController: async.Future.Promise[Boolean]): Unit =
+  def submit(task: Task, taskController: async.Future.Promise[Boolean], shouldIncrement: Boolean = true): Unit =
     lock.lock()
     try
+      if shouldIncrement then
+        cnt += 1
       readyTasks = (task, taskController) :: readyTasks
       queueChange.signal()
     finally
       lock.unlock()
 
   def getSchedule(): List[String] = schedule
+
+  def finish(): Unit =
+    lock.lock()
+    try
+      cnt -= 1
+      if cnt == 0 && readyTasks.size == 0 then
+        queueChange.signal()
+    finally
+      lock.unlock()
 }
