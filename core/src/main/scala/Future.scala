@@ -35,8 +35,12 @@ object Future {
 abstract class Task(val parent: Task, init: Boolean = true) extends Runnable {
   val ready = AtomicBoolean(init)
   final def isRoot = parent == null
+  var id:Id = Id(parent)
   final def isReady(): Boolean = ready.get()
   def run(): Unit
+
+
+  override def toString(): String = s"[${id.getId()}]"
 }
 
 class Future[T](underlying: async.Future[T]) {
