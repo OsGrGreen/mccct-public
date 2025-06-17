@@ -4,7 +4,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
 
 import scala.util.{Try, Success, Failure}
-
 import gears.async
 import gears.async.default.given
 
@@ -14,6 +13,17 @@ given rootTask: Task = new Task(null) {
 
 object Future {
 
+  def submitChild(parent: Task)(using a: async.Async): Unit = {
+      val childController = async.Future.Promise[Boolean]()
+      val endChild =  new Task(parent, isEnd = true) {
+        def run() = {
+          childController.awaitResult
+        }
+      }
+      Thread.ofVirtual().start(endChild)
+      Scheduler.submit(endChild, childController)
+  }
+
   def apply[T](body: Task ?=> T)(using a: async.Async, parent: Task): Future[T] =
     val p = async.Future.Promise[T]()
     val taskController = async.Future.Promise[Boolean]()
@@ -22,6 +32,7 @@ object Future {
         taskController.awaitResult  // wait for scheduler to let the task start
         // using a promise is enough, since a task is started only once
         val result = body(using this)
+        submitChild(this) //Schedule the end child before completing this future. It seems to behave more consistently
         p.complete(Success(result))
     }
     // start task on virtual thread
@@ -29,16 +40,14 @@ object Future {
     // submit new ready task to CCT scheduler
     Scheduler.submit(task, taskController)
     new Future(p.asFuture)
-
 }
 
-abstract class Task(val parent: Task, init: Boolean = true) extends Runnable {
+abstract class Task(val parent: Task, init: Boolean = true, isEnd: Boolean = false) extends Runnable {
   val ready = AtomicBoolean(init)
   final def isRoot = parent == null
-  var id:Id = Id(parent)
+  var id:Id = Id(parent, isEnd)
   final def isReady(): Boolean = ready.get()
   def run(): Unit
-
 
   override def toString(): String = s"[${id.getId()}]"
 }
@@ -72,6 +81,8 @@ object Scheduler {
 
   private var readyTasks: List[(Task, Controller)] = List()
 
+  private var schedule: List[String] = List()
+
   def start(initCnt: Int) =
     cnt = initCnt
     val schedulerTask = new Runnable {
@@ -81,7 +92,10 @@ object Scheduler {
           try
             // wait for new tasks to be submitted
             println("scheduler waiting for change in task queue...")
-            queueChange.awaitUninterruptibly()
+            //Only wait for new tasks while task queue is empty
+            if (readyTasks.size == 0){
+              queueChange.awaitUninterruptibly()
+            }
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
             // log first task in queue
@@ -97,6 +111,7 @@ object Scheduler {
             // let task start
             println(s"scheduler signalling task $task to continue")
             ctrl.complete(Success(true))
+            schedule = task.id.getId() :: schedule
           finally
             lock.unlock()
         }
@@ -108,6 +123,7 @@ object Scheduler {
     try
       if !done then termination.awaitUninterruptibly()
     finally
+      schedule = schedule.reverse
       lock.unlock()
 
   def submit(task: Task, taskController: async.Future.Promise[Boolean]): Unit =
@@ -117,4 +133,6 @@ object Scheduler {
       queueChange.signal()
     finally
       lock.unlock()
+
+  def getSchedule(): List[String] = schedule
 }
