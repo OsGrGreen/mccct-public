@@ -80,27 +80,33 @@ object Scheduler {
   private val termination = lock.newCondition()
 
   private var readyTasks: List[(Task, Controller)] = List()
+  private var targetSchedule: List[String] = List()
 
   private var schedule: List[String] = List()
 
-  def start(initCnt: Int) =
+  def start(initCnt: Int, initTargetSchedule: List[String]) =
     cnt = initCnt
+    targetSchedule = initTargetSchedule
+    val shouldFollow = !targetSchedule.isEmpty
     val schedulerTask = new Runnable {
       def run() =
         while (!done) {
           lock.lock()
           try
-            // wait for new tasks to be submitted
-            println("scheduler waiting for change in task queue...")
-            //Only wait for new tasks while task queue is empty
             if (readyTasks.size == 0){
+              println("scheduler waiting for change in task queue...")
               queueChange.awaitUninterruptibly()
             }
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
-            // log first task in queue
-            val (task, ctrl) = readyTasks.head
-            readyTasks = readyTasks.tail // remove task
+
+            val (task, ctrl) = if shouldFollow then
+              followSchedule()
+            else
+              val tmp = readyTasks.head
+              readyTasks = readyTasks.tail
+              tmp
+
             println(s"scheduler signalled (cnt=$cnt) with first task: ${task.toString()}")
 
             cnt -= 1
@@ -117,6 +123,21 @@ object Scheduler {
         }
     }
     Thread.ofPlatform().start(schedulerTask)
+
+  def followSchedule(): (Task, async.Future.Promise[Boolean]) =
+    val targetTask = targetSchedule.head //Take the id of the task we want to execute.
+
+    // log first task in queue
+    var target:List[(Task, Controller)] = readyTasks.filter((t,c) => t.id.getId() == targetTask)
+    while (target.size == 0){ //If we did not currently find the target task, then it has not arrived yet
+      queueChange.awaitUninterruptibly() //Wait until queue is updated
+      target = readyTasks.filter((t,c) => t.id.getId() == targetTask) //See if the update added the target, otherwise repeat
+      //In an ideal world we would only need to check the head, but I think it is possible that multiple tasks are added at the same time.
+    }
+    readyTasks = readyTasks diff target //Remove target from queue 
+    targetSchedule = targetSchedule.tail //Remove head from schedule
+    target.head //Take target task and control
+
 
   def awaitTermination() =
     lock.lock()

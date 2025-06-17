@@ -6,7 +6,7 @@ import gears.async.default.given
 object Main {
   /*@main*/ def run(): Unit =
     println("Main running...")
-    Scheduler.start(3)
+    Scheduler.start(3, List("3.","1.","2."))
 
     Async.blocking:
       Future {
