@@ -87,6 +87,7 @@ object Scheduler {
   private var schedule: List[String] = List()
 
   def start(initTargetSchedule: List[String] = List()) =
+    Scheduler.reset()
     targetSchedule = initTargetSchedule
     val shouldFollow = !targetSchedule.isEmpty
     val schedulerTask = new Runnable {
@@ -168,4 +169,14 @@ object Scheduler {
         queueChange.signal()
     finally
       lock.unlock()
+
+  def reset(): Unit = 
+    done = false
+    readyTasks = List()
+    cnt = 0
+    rootTask.id.reset()
+    schedule = List()
+    targetSchedule = List()
+
+  def getDone(): Boolean = done
 }
