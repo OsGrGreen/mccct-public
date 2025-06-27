@@ -1,4 +1,4 @@
-package mucct
+package mccct
 
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -15,8 +15,8 @@ class Id(val parent: Task, val isEnd: Boolean = false):
         }
     }
 
-    def getNumChildren(): Int = numChildren.incrementAndGet()
+    private[mccct] def getNumChildren(): Int = numChildren.incrementAndGet()
 
     def getId(): String = id
 
-    def reset(): Unit = numChildren = AtomicInteger(0)
+    private[mccct] def reset(): Unit = numChildren = AtomicInteger(0)
