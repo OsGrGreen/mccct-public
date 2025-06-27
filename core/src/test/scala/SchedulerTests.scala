@@ -1,4 +1,5 @@
-package mucct
+package mccct
+package test
 
 import org.junit.Test
 import org.junit.runner.RunWith

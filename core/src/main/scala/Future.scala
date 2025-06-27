@@ -1,4 +1,4 @@
-package mucct
+package mccct
 
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
@@ -13,7 +13,7 @@ given rootTask: Task = new Task(null) {
 
 object Future {
 
-  def submitChild(parent: Task)(using a: async.Async): Unit = {
+  private def submitChild(parent: Task)(using a: async.Async): Unit = {
       val childController = async.Future.Promise[Boolean]()
       val endChild =  new Task(parent, isEnd = true) {
         def run() = {
@@ -126,7 +126,7 @@ object Scheduler {
     }
     Thread.ofPlatform().start(schedulerTask)
 
-  def followSchedule(): (Task, async.Future.Promise[Boolean]) =
+  private[mccct] def followSchedule(): (Task, async.Future.Promise[Boolean]) =
     val targetTask = targetSchedule.head //Take the id of the task we want to execute.
 
     // log first task in queue
@@ -149,7 +149,7 @@ object Scheduler {
       schedule = schedule.reverse
       lock.unlock()
 
-  def submit(task: Task, taskController: async.Future.Promise[Boolean], shouldIncrement: Boolean = true): Unit =
+  private[mccct] def submit(task: Task, taskController: async.Future.Promise[Boolean], shouldIncrement: Boolean = true): Unit =
     lock.lock()
     try
       if shouldIncrement then
@@ -159,9 +159,9 @@ object Scheduler {
     finally
       lock.unlock()
 
-  def getSchedule(): List[String] = schedule
+  private[mccct] def getSchedule(): List[String] = schedule
 
-  def finish(): Unit =
+  private[mccct] def finish(): Unit =
     lock.lock()
     try
       cnt -= 1
