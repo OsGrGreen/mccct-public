@@ -19,3 +19,4 @@ class Id(val parent: Task, val isEnd: Boolean = false):
 
     def getId(): String = id
 
+    def reset(): Unit = numChildren = AtomicInteger(0)
