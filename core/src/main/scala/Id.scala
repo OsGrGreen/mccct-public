@@ -4,10 +4,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class Id(val parent: Task, val isEnd: Boolean = false):
 
-    private var numChildren: AtomicInteger = AtomicInteger(0)
+    var numChildren: AtomicInteger = AtomicInteger(0)
     private val id: String = {
         if (parent != null && !isEnd) {
-            parent.id.getId() + parent.id.getNumChildren() + "."
+            parent.id.getId() + parent.id.getAndIncrementNumChildren() + "."
         } else if (parent != null && isEnd){
             parent.id.getId() + "0."
         } else{
@@ -15,7 +15,9 @@ class Id(val parent: Task, val isEnd: Boolean = false):
         }
     }
 
-    private[mccct] def getNumChildren(): Int = numChildren.incrementAndGet()
+    private[mccct] def getAndIncrementNumChildren(): Int = numChildren.incrementAndGet()
+
+    private[mccct] def getNumChildren(): Int = numChildren.get()
 
     def getId(): String = id
 
