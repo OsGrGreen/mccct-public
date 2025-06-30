@@ -22,3 +22,5 @@ class Id(val parent: Task, val isEnd: Boolean = false):
     def getId(): String = id
 
     private[mccct] def reset(): Unit = numChildren = AtomicInteger(0)
+    
+    def getParent(): String = parent.id.getId()

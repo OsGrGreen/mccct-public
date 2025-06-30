@@ -19,7 +19,7 @@ class ReplayTests {
     val list:AtomicReference[List[Int]] = AtomicReference(List()) 
     val schedule: List[String] = List("1.","1.2.","1.2.0.","1.1.","1.1.0.","1.","1.","1.0.")
     
-    Scheduler.start(schedule)
+    Scheduler.start(FixedSchedule(schedule))
 
     Async.blocking:
       val f = Future {

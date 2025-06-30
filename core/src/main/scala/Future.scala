@@ -99,18 +99,15 @@ object Scheduler {
   private val stuckState = lock.newCondition()
 
   private var readyTasks: List[(Task, Controller)] = List()
-  private var targetSchedule: List[String] = List()
 
   private var schedule: List[String] = List()
 
   /** Determines if scheduler is allowed to continue execution */
   private var hasAllTasks: Boolean = false
 
-  def start(initTargetSchedule: List[String] = List()) =
+  def start(alg: ExplorationAlgorithm = RandomWalk) =
     Scheduler.reset()
 
-    targetSchedule = initTargetSchedule
-    val shouldFollow = !targetSchedule.isEmpty
     val schedulerTask = new Runnable {
       def run() =
         while (!done) {
@@ -133,12 +130,8 @@ object Scheduler {
                 
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
-            val (task, ctrl) = if shouldFollow && !targetSchedule.isEmpty then
-              followSchedule()
-            else
-              val tmp = readyTasks.head
-              readyTasks = readyTasks.tail
-              tmp
+            val (task, ctrl) = getNextTask(alg)
+            readyTasks = readyTasks diff List((task,ctrl))
 
             println(s"scheduler signalled (cnt=$cnt) with first task: ${task.toString()}")
 
@@ -152,20 +145,13 @@ object Scheduler {
     }
     Thread.ofPlatform().start(schedulerTask)
 
-  private[mccct] def followSchedule(): (Task, async.Future.Promise[Boolean]) =
-    val targetTask = targetSchedule.head //Take the id of the task we want to execute.
-
-    // log first task in queue
-    var target:List[(Task, Controller)] = readyTasks.filter((t,c) => t.id.getId() == targetTask)
-    while (target.size == 0){ //If we did not currently find the target task, then it has not arrived yet
-      queueChange.awaitUninterruptibly() //Wait until queue is updated
-      target = readyTasks.filter((t,c) => t.id.getId() == targetTask) //See if the update added the target, otherwise repeat
-      //In an ideal world we would only need to check the head, but I think it is possible that multiple tasks are added at the same time.
-    }
-    readyTasks = readyTasks diff target //Remove target from queue 
-    targetSchedule = targetSchedule.tail //Remove head from schedule
-    target.head //Take target task and control
-
+  private def getNextTask(alg: ExplorationAlgorithm): (Task, Controller) =
+    alg.getNext(readyTasks) match
+      case Some((t,c)) => (t,c)
+      case None => {
+        queueChange.awaitUninterruptibly()
+        getNextTask(alg)
+      }
 
   def awaitTermination() =
     lock.lock()
@@ -212,7 +198,7 @@ object Scheduler {
     finally
       lock.unlock()
 
-  def hasFinished: Boolean = cnt == 0 && readyTasks.size == 0 && hasAllTasks
+  private def hasFinished: Boolean = cnt == 0 && readyTasks.size == 0 && hasAllTasks
   
   private[mccct] def submit(task: Task, taskController: async.Future.Promise[Boolean], shouldIncrement: Boolean = true): Unit =
     lock.lock()
@@ -241,7 +227,6 @@ object Scheduler {
     cnt = 0
     rootTask.id.reset()
     schedule = List()
-    targetSchedule = List()
     hasAllTasks = false
 
   def getDone(): Boolean = done

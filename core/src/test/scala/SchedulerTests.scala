@@ -13,10 +13,67 @@ import gears.async.default.given
 class SchedulerTests {
 
   @Test
-  def resetTest(): Unit = {
-    Scheduler.start()
+  def exploreAllRandomWalkTest(): Unit = {
+    Scheduler.start(RandomWalk)
+    val list = AtomicReference(List[Int]()) 
 
-    val list:AtomicReference[List[Int]] = AtomicReference(List()) 
+    Async.blocking:
+      val f1 = Future{
+        Future {
+          list.updateAndGet(curr => 1 :: curr)
+        }
+        list.updateAndGet(curr => 2 :: curr)
+      }
+      val f2 = Future{
+        Future{
+          Future{
+            list.updateAndGet(curr => 3 :: curr)
+          }
+          list.updateAndGet(curr => 4 :: curr)
+        }
+        list.updateAndGet(curr => 5 :: curr)
+      }
+    
+    Scheduler.awaitTermination()
+    assert(list.get().size == 5)
+    assert(list.get().size*2 == Scheduler.getSchedule().size)
+  }
+
+  @Test
+  def randomWalkWithAwaitTest(): Unit = {
+    Scheduler.start(RandomWalk)
+    val list = AtomicReference(List[Int]()) 
+
+    Async.blocking:
+      val f1 = Future{
+        val nestedF = Future{
+          list.updateAndGet(curr => 1 :: curr)
+        }
+        nestedF.await
+        list.updateAndGet(curr => 2 :: curr)
+      }
+      val f2 = Future{
+        list.updateAndGet(curr => 3 :: curr)
+      }
+      f1.await
+      val f3 = Future{
+        list.updateAndGet(curr => 4 :: curr)
+      }
+    
+    Scheduler.awaitTermination()
+    val finalList = list.get().reverse
+    assert(finalList.size == 4)
+    assert(Scheduler.getSchedule().size == 10) //4 Futures + 2 awaits + 4 .0 children
+    assert(appearsAfter(2, 1, finalList))
+    assert(appearsAfter(4, 1, finalList))
+    assert(appearsAfter(4, 2, finalList))
+  }
+
+  @Test
+  def resetTest(): Unit = {
+    Scheduler.start(FifoAlgorithm)
+
+    val list: AtomicReference[List[Int]] = AtomicReference(List()) 
 
     Async.blocking:
       val f = Future {
@@ -36,7 +93,7 @@ class SchedulerTests {
 
   @Test
   def awaitTest(): Unit = {
-    Scheduler.start()
+    Scheduler.start(FifoAlgorithm)
     val list:AtomicReference[List[Int]] = AtomicReference(List()) 
 
     Async.blocking:
@@ -59,7 +116,7 @@ class SchedulerTests {
   
   @Test
   def noAwaitTest(): Unit = {
-    Scheduler.start()
+    Scheduler.start(FifoAlgorithm)
     val list:AtomicReference[List[Int]] = AtomicReference(List()) 
 
     Async.blocking:
@@ -84,7 +141,7 @@ class SchedulerTests {
 
   @Test
   def awaitNothingBeforeTest(): Unit = {
-    Scheduler.start()
+    Scheduler.start(FifoAlgorithm)
     val list:AtomicReference[List[Int]] = AtomicReference(List()) 
 
     Async.blocking:
@@ -98,7 +155,7 @@ class SchedulerTests {
     assert(list.get().size == 1)
   }
 
-  private def appearsAfter(target: String, after: String, list: List[String]): Boolean = {
+  private def appearsAfter[T](target: T, after: T, list: List[T]): Boolean = {
     val afterIndex = list.indexOf(after)
     val targetIndex = list.indexOf(target)
 
