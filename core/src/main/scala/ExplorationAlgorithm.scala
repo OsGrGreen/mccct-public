@@ -10,15 +10,13 @@ trait ExplorationAlgorithm:
 
 object FifoAlgorithm extends ExplorationAlgorithm:
     def getNext(readyTasks: List[(Task, Scheduler.Controller)]): Option[(Task,Scheduler.Controller)] =
-        Some(readyTasks.head)
+        readyTasks.headOption
     
     def prepareNext(taskHistory: List[String]): Unit = {}
 
 object RandomWalk extends ExplorationAlgorithm:
-    def getNext(readyTasks: List[(Task, Scheduler.Controller)]): Option[(Task,Scheduler.Controller)] = {
-        var chosen = getRandElem(readyTasks).get
-        Some(chosen)
-    }
+    def getNext(readyTasks: List[(Task, Scheduler.Controller)]): Option[(Task,Scheduler.Controller)] = 
+        getRandElem(readyTasks)
 
     def prepareNext(taskHistory: List[String]): Unit = {}
 
@@ -29,12 +27,14 @@ object RandomWalk extends ExplorationAlgorithm:
 
 class FixedSchedule(var targetSchedule: List[String])  extends ExplorationAlgorithm:
     def getNext(readyTasks: List[(Task,Scheduler.Controller)]): Option[(Task,Scheduler.Controller)] = {
-        val targetTask = targetSchedule.head //Take the id of the task we want to execute.
-        var target:List[(Task, Scheduler.Controller)] = readyTasks.filter((t,c) => t.id.getId() == targetTask)
-        if target.isEmpty then
-            return None
-        targetSchedule = targetSchedule.tail //Remove head from schedule
-        Some(target.head) //Take target task and control
+        targetSchedule.headOption match //Take the id of the task we want to execute.
+          case Some(task) => 
+            val target = readyTasks.filter((t,c) => t.id.getId() == task)
+            if target.isEmpty then
+              return None
+            targetSchedule = targetSchedule.tail //Remove head from schedule
+            Some(target.head) //Take target task and control
+          case None => None
     }
 
     def prepareNext(taskHistory: List[String]): Unit = {}

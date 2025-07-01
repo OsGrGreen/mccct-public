@@ -73,7 +73,7 @@ class SchedulerTests {
   def resetTest(): Unit = {
     Scheduler.start(FifoAlgorithm)
 
-    val list: AtomicReference[List[Int]] = AtomicReference(List()) 
+    val list = AtomicReference(List[Int]()) 
 
     Async.blocking:
       val f = Future {
@@ -93,8 +93,8 @@ class SchedulerTests {
 
   @Test
   def awaitTest(): Unit = {
-    Scheduler.start(FifoAlgorithm)
-    val list:AtomicReference[List[Int]] = AtomicReference(List()) 
+    Scheduler.start(RandomWalk)
+    val list = AtomicReference(List[Int]()) 
 
     Async.blocking:
       val f1 = Future {
@@ -117,8 +117,7 @@ class SchedulerTests {
   @Test
   def noAwaitTest(): Unit = {
     Scheduler.start(FifoAlgorithm)
-    val list:AtomicReference[List[Int]] = AtomicReference(List()) 
-
+    val list = AtomicReference(List[Int]()) 
     Async.blocking:
       val f1 = Future {
         list.updateAndGet(curr => 1 :: curr)
@@ -141,8 +140,8 @@ class SchedulerTests {
 
   @Test
   def awaitNothingBeforeTest(): Unit = {
-    Scheduler.start(FifoAlgorithm)
-    val list:AtomicReference[List[Int]] = AtomicReference(List()) 
+    Scheduler.start(RandomWalk)
+    val list = AtomicReference(List[Int]()) 
 
     Async.blocking:
       val f1 = Future {
@@ -153,6 +152,17 @@ class SchedulerTests {
     
     Scheduler.awaitTermination()
     assert(list.get().size == 1)
+  }
+
+  @Test
+  def stressExistingTests(): Unit = {
+    var counter = 1_000
+    while (counter > 0) {
+      awaitTest()
+      noAwaitTest()
+      awaitNothingBeforeTest()
+      counter -= 1
+    }
   }
 
   private def appearsAfter[T](target: T, after: T, list: List[T]): Boolean = {

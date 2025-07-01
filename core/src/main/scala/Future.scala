@@ -91,7 +91,6 @@ object Scheduler {
   type Controller = async.Future.Promise[Boolean]
 
   private var done = false
-  private var shouldWait = true
   private var cnt = 0
   private val lock: Lock = new ReentrantLock
   private val queueChange = lock.newCondition()
@@ -111,19 +110,26 @@ object Scheduler {
 
     val schedulerTask = new Runnable {
       def run() =
-        while (!done) {
+        while (true) {
           lock.lock()
           try
             if !hasAllTasks then
               println("scheduler waiting to get unstuck")
               stuckState.awaitUninterruptibly()
-            
-            if (readyTasks.size == 0 && shouldWait){
-              println("scheduler waiting for change in task queue...")
+              
+            // If we have tasks in the queue we do not need to wait
+            // Since there is no guarantee that there will be other tasks added to the queue if it is non-empty
+            // Therefore, the scheduler should make a choice
+            // Furthermore, it is possible that the queueChange signal for termination has been sent at the end of the while loop
+            // In this case we will get no more queueChange signals, therefore the scheduler must be able to skip the await (or it gets stuck)
+            if (readyTasks.size == 0 && !hasFinished){
+              println("Waiting for queueChange")
               queueChange.awaitUninterruptibly()
-              println("scheduler got change in task queue...")
             }
             
+            // If the scheduler reaches this one of two possbilities must be true
+            // Either readyTasks is empty, which means that the queueChange signal was triggered because the scheduler should terminate
+            // Or readyTasks is non-empty and the scheduler should continue execution
             if hasFinished then
               done = true
               termination.signal()
@@ -132,7 +138,8 @@ object Scheduler {
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
             val (task, ctrl) = getNextTask(alg)
-            readyTasks = readyTasks diff List((task,ctrl))
+                  
+            readyTasks = readyTasks diff List((task, ctrl))
 
             println(s"scheduler signalled (cnt=$cnt) with first task: ${task.toString()}")
 
@@ -149,22 +156,22 @@ object Scheduler {
   private def getNextTask(alg: ExplorationAlgorithm): (Task, Controller) =
     alg.getNext(readyTasks) match
       case Some((t,c)) => (t,c)
-      case None => {
+      case None => { // There is non-empty queue, however it has the wrong elements
         queueChange.awaitUninterruptibly()
+        if hasFinished then // Should not be possible
+          assert(false) // Since readyTasks should always be non-empty if this line is reached
         getNextTask(alg)
       }
 
   def awaitTermination() =
     lock.lock()
     try
-      //The end of the main thread has been reached
-      hasAllTasks = true //All top level tasks must now be available for the scheduler
+      // The end of the main thread has been reached
+      hasAllTasks = true // All top level tasks must now be available for the scheduler
       stuckState.signal()
-      if hasFinished then 
-        done = true
-        shouldWait = false
-        queueChange.signal()
-      if !done then termination.awaitUninterruptibly()
+      if hasFinished then // If we have finished before calling awaitTermination Scheduler will be waiting for queueChange
+          queueChange.signal() // Signal the Scheduler a queueChange to get termination signal
+      termination.awaitUninterruptibly() // Since the main thread has the lock, the termination signal can not be sent before the await
     finally
       schedule = schedule.reverse
       lock.unlock()
@@ -178,11 +185,11 @@ object Scheduler {
   private[mccct] def stuckSignal(task: Task) = 
     lock.lock()
     try
-      //If parent is null, then this must be a root task
-      if task.isRoot then //Which means that execution must continue until the awaited top-level task is completed
-        hasAllTasks = true //Allow scheduler to execute until `hasAllTasks` is set to false
-        cnt += 1 //Make sure that the scheduler can not finish while waiting for a top-level task
-        stuckState.signal() //Signal the lock that the scheduler must continue
+      // If parent is null, then this must be a root task
+      if task.isRoot then // Which means that execution must continue until the awaited top-level task is completed
+        hasAllTasks = true // Allow scheduler to execute until `hasAllTasks` is set to false
+        cnt += 1 // Make sure that the scheduler can not finish while waiting for a top-level task
+        stuckState.signal() // Signal the lock that the scheduler must continue
     finally
       lock.unlock()
 
@@ -195,14 +202,15 @@ object Scheduler {
   private[mccct] def noLongerStuck(task: Task) = 
     lock.lock()
     try
-      //If parent is null, then this must be a root task
-      if task.isRoot then //Which means that execution must continue until the awaited top-level task is completed
-        hasAllTasks = false //In this case we have now executed the blocking task, and may once again wait until we have loaded all top-level tasks (or become stuck)
-        cnt -= 1 //Scheduler may now finish when possible
+      // If parent is null, then this must be a root task
+      if task.isRoot then // Which means that execution must continue until the awaited top-level task is completed
+        hasAllTasks = false // In this case we have now executed the blocking task, and may once again wait until we have loaded all top-level tasks (or become stuck)
+        cnt -= 1 // Scheduler may now finish when possible
     finally
       lock.unlock()
 
-  private def hasFinished: Boolean = cnt == 0 && readyTasks.size == 0 && hasAllTasks
+  private def hasFinished: Boolean = 
+    cnt == 0 && readyTasks.size == 0 && hasAllTasks
   
   private[mccct] def submit(task: Task, taskController: async.Future.Promise[Boolean], shouldIncrement: Boolean = true): Unit =
     lock.lock()
@@ -221,19 +229,21 @@ object Scheduler {
     try
       cnt -= 1
       if hasFinished then
-        shouldWait = false
-        queueChange.signal()
+        queueChange.signal() //If the Scheduler is in a state which should terminate, signal the queueChange
     finally
       lock.unlock()
 
   def reset(): Unit = 
-    done = false
-    readyTasks = List()
-    cnt = 0
-    rootTask.id.reset()
-    schedule = List()
-    hasAllTasks = false
-    shouldWait = true
+    lock.lock()
+    try
+      done = false
+      readyTasks = List()
+      cnt = 0
+      rootTask.id.reset()
+      schedule = List()
+      hasAllTasks = false
+    finally
+      lock.unlock()
 
   def getDone(): Boolean = done
 }

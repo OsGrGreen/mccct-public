@@ -40,5 +40,14 @@ class RecordTests {
     assert(schedule == Scheduler.getSchedule())
   }
 
+  @Test
+  def stressExistingRecordTests(): Unit = {
+    var counter = 1_000
+    while (counter > 0) {
+      replayAndRecordTest()
+      counter -= 1
+    }
+  }
+
 }
 
