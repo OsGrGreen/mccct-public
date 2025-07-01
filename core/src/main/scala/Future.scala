@@ -34,8 +34,8 @@ object Future {
         // using a promise is enough, since a task is started only once
         val result = body(using this)
         submitChild(this) //Schedule the end child before completing this future. It seems to behave more consistently
-        p.complete(Success(result))
         Scheduler.finish()
+        p.complete(Success(result))
     }
     // start task on virtual thread
     Thread.ofVirtual().start(task)
@@ -91,6 +91,7 @@ object Scheduler {
   type Controller = async.Future.Promise[Boolean]
 
   private var done = false
+  private var shouldWait = true
   private var cnt = 0
   private val lock: Lock = new ReentrantLock
   private val queueChange = lock.newCondition()
@@ -117,7 +118,7 @@ object Scheduler {
               println("scheduler waiting to get unstuck")
               stuckState.awaitUninterruptibly()
             
-            if (readyTasks.size == 0 && !done){
+            if (readyTasks.size == 0 && shouldWait){
               println("scheduler waiting for change in task queue...")
               queueChange.awaitUninterruptibly()
               println("scheduler got change in task queue...")
@@ -159,7 +160,10 @@ object Scheduler {
       //The end of the main thread has been reached
       hasAllTasks = true //All top level tasks must now be available for the scheduler
       stuckState.signal()
-      if hasFinished then queueChange.signal()
+      if hasFinished then 
+        done = true
+        shouldWait = false
+        queueChange.signal()
       if !done then termination.awaitUninterruptibly()
     finally
       schedule = schedule.reverse
@@ -217,6 +221,7 @@ object Scheduler {
     try
       cnt -= 1
       if hasFinished then
+        shouldWait = false
         queueChange.signal()
     finally
       lock.unlock()
@@ -228,6 +233,8 @@ object Scheduler {
     rootTask.id.reset()
     schedule = List()
     hasAllTasks = false
+    shouldWait = true
 
   def getDone(): Boolean = done
 }
+
