@@ -9,21 +9,17 @@ import java.util.concurrent.atomic.AtomicReference
 import gears.async.Async
 import gears.async.default.given
 
-
 @RunWith(classOf[JUnit4])
 class ReplayTests {
 
-
-  /**
-    * Given a program that adds numbers to a list and a fixed schedule,
-    * the order of the numbers should always be fixed and follow the logic
-    * of the fixed schedule
+  /** Given a program that adds numbers to a list and a fixed schedule, the order of the numbers should always be fixed
+    * and follow the logic of the fixed schedule
     */
   @Test
   def replayOrderTest(): Unit = {
-    val list:AtomicReference[List[Int]] = AtomicReference(List()) 
-    val schedule: List[String] = List("1.","1.2.","1.2.0.","1.1.","1.1.0.","1.","1.","1.0.")
-    
+    val list: AtomicReference[List[Int]] = AtomicReference(List())
+    val schedule: List[String]           = List("1.", "1.2.", "1.2.0.", "1.1.", "1.1.0.", "1.", "1.", "1.0.")
+
     Scheduler.start(FixedSchedule(schedule))
 
     Async.blocking:
@@ -42,6 +38,5 @@ class ReplayTests {
     Scheduler.awaitTermination()
     assert(list.get() == List(2, 1, 0))
   }
-  
-}
 
+}

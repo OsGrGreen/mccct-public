@@ -4,7 +4,8 @@ import gears.async.Async
 import gears.async.default.given
 
 object Main {
-  /*@main*/ def run(): Unit =
+  /*@main*/
+  def run(): Unit =
     println("Main running...")
     Scheduler.start(FifoAlgorithm)
 
