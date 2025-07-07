@@ -33,3 +33,6 @@ jobs:
       - name: Build and test mccct
         shell: bash
         run: sbt "clean; test"
+      - name: Test formatting
+        shell: bash
+        run: sbt "clean; scalafmtCheck"
