@@ -111,6 +111,7 @@ object Scheduler {
   type Controller = async.Future.Promise[Boolean]
 
   private var done        = false
+  private var debug       = false
   private var cnt         = 0 // The number of currently running tasks
   private val lock: Lock  = new ReentrantLock
   private val queueChange = lock
@@ -130,8 +131,9 @@ object Scheduler {
     */
   private var hasAllTasks: Boolean = false
 
-  def start(alg: ExplorationAlgorithm = RandomWalk) =
+  def start(alg: ExplorationAlgorithm = RandomWalk, shouldPrint: Boolean = false) =
     Scheduler.reset() // In case the scheduler has been used before, reset it so no information is carried over
+    debug = shouldPrint
 
     val schedulerTask = new Runnable {
       def run() =
@@ -143,7 +145,7 @@ object Scheduler {
             // If hasAllTasks is true, then no more top-level tasks will be started. This means that new tasks will only be a product/child of current tasks.
             // Therefore, we can continue execution until we terminate
             if !hasAllTasks then
-              println("scheduler waiting to get unstuck")
+              if debug then println("scheduler waiting to get unstuck")
               stuckState.awaitUninterruptibly()
 
             // If we have tasks in the queue we do not need to wait
@@ -152,7 +154,7 @@ object Scheduler {
             // Furthermore, it is possible that the queueChange signal for termination has been sent at the end of the while loop
             // In this case we will get no more queueChange signals, therefore the scheduler must be able to skip the await (or it gets stuck)
             if (readyTasks.size == 0 && !hasFinished) {
-              println("Waiting for queueChange")
+              if debug then println("Waiting for queueChange")
               queueChange.awaitUninterruptibly()
             }
 
@@ -163,18 +165,19 @@ object Scheduler {
               done = true
               termination.signal()
               return
-
-            println(s"scheduler: size of task queue = ${readyTasks.size}")
+            if debug then println(s"scheduler: size of task queue = ${readyTasks.size}")
 
             val executionTasks = getNextTask(alg) // Get the next task as specified by the algorithm and its controller
             readyTasks =
               readyTasks diff executionTasks // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
 
             executionTasks.foreach { (task, ctrl) =>
-              println(s"scheduler signalled (cnt=$cnt) with task: ${task.toString()}")
+              if debug then
+                println(s"scheduler signalled (cnt=$cnt) with task: ${task.toString()}")
+
+                println(s"scheduler signalling task $task to continue")
 
               // let task start
-              println(s"scheduler signalling task $task to continue")
               ctrl.complete(Success(true)) // Complete the promise allowing the task to execute
               schedule = task.id
                 .getId() :: schedule // Add the id of the task to the history/schedule of executed tasks (this run of the schedule)
@@ -291,6 +294,7 @@ object Scheduler {
       rootTask.id.reset()
       schedule = List()
       hasAllTasks = false
+      debug = false
     finally lock.unlock()
 
   def getDone(): Boolean = done
