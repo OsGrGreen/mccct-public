@@ -154,15 +154,18 @@ object Scheduler {
                 
             println(s"scheduler: size of task queue = ${readyTasks.size}")
 
-            val (task, ctrl) = getNextTask(alg) // Get the next task as specified by the algorithm and its controller
-            readyTasks = readyTasks diff List((task,ctrl)) // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
+            val executionTasks = getNextTask(alg) // Get the next task as specified by the algorithm and its controller
+            readyTasks = readyTasks diff executionTasks // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
 
-            println(s"scheduler signalled (cnt=$cnt) with first task: ${task.toString()}")
+            executionTasks.foreach {
+              (task, ctrl) => 
+              println(s"scheduler signalled (cnt=$cnt) with task: ${task.toString()}")
 
-            // let task start
-            println(s"scheduler signalling task $task to continue")
-            ctrl.complete(Success(true)) // Complete the promise allowing the task to execute
-            schedule = task.id.getId() :: schedule // Add the id of the task to the history/schedule of executed tasks (this run of the schedule)
+              // let task start
+              println(s"scheduler signalling task $task to continue")
+              ctrl.complete(Success(true)) // Complete the promise allowing the task to execute
+              schedule = task.id.getId() :: schedule // Add the id of the task to the history/schedule of executed tasks (this run of the schedule)
+            }
           finally
             lock.unlock()
         }
@@ -174,9 +177,9 @@ object Scheduler {
     * @param alg The algorithm which determines what task to execute and how to choose it
     * @return the task to be executed
     */
-  private def getNextTask(alg: ExplorationAlgorithm): (Task, Controller) =
+  private def getNextTask(alg: ExplorationAlgorithm): List[(Task, Controller)] =
     alg.getNext(readyTasks) match
-      case Some((t,c)) => (t,c)
+      case Some(l) => l
       // If algorithm returns None it indicates that the algorithm is not satisfied with the readyTasks list.
       case None => { // There is non-empty queue, however it has the wrong elements
         queueChange.awaitUninterruptibly() // Therefore, the scheduler should wait for an update until the algorithm returns a non-empty option
