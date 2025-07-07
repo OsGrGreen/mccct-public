@@ -12,6 +12,11 @@ import gears.async.default.given
 @RunWith(classOf[JUnit4])
 class RecordTests {
 
+  /**
+    * A test that makes sure that if the scheduler is given a fixed schedule, then the recorded schedule is the same schedule
+    * 
+    * A caveat of this test is that the FixedSchedule needs to be complete. I.E. lead to termination of the code
+    */
   @Test
   def replayAndRecordTest(): Unit = {
     val schedule: List[String] = List("1.","2.","1.2.","1.2.0.","2.1.", "1.1." ,"2.1.0.", "1.1.0.","1.","2.2.","2.2.0.","1.","2.", "1.0.","2.","2.0.")

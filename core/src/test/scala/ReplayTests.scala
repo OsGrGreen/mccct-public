@@ -14,6 +14,11 @@ import gears.async.default.given
 class ReplayTests {
 
 
+  /**
+    * Given a program that adds numbers to a list and a fixed schedule,
+    * the order of the numbers should always be fixed and follow the logic
+    * of the fixed schedule
+    */
   @Test
   def replayOrderTest(): Unit = {
     val list:AtomicReference[List[Int]] = AtomicReference(List()) 
