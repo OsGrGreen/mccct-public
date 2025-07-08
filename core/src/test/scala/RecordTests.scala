@@ -8,6 +8,8 @@ import org.junit.runners.JUnit4
 import gears.async.Async
 import gears.async.default.given
 
+import java.io.File
+
 @RunWith(classOf[JUnit4])
 class RecordTests {
 
@@ -64,6 +66,61 @@ class RecordTests {
       replayAndRecordTest()
       counter -= 1
     }
+  }
+
+  @Test
+  def recordExceptionFuture(): Unit = {
+    Scheduler.start(RandomWalk)
+
+    Async.blocking:
+      val f1 = Future {
+        throw new RuntimeException("Test runtime exception")
+      }
+    Scheduler.awaitTermination()
+    val outputFile = "test-trace.txt"
+    // Since the future fails it should never be completed, i.e. no ".0." child
+    assert(Scheduler.getSchedule() == List("1."))
+    assert(!Scheduler.checkErrors(outputFile = outputFile))
+    assert(Scheduler.getSchedule() == Scheduler.readSchedule(outputFile))
+    val f = new File(outputFile)
+    f.delete()
+  }
+
+  @Test
+  def testNoExceptionFuture(): Unit = {
+    Scheduler.start(RandomWalk)
+
+    Async.blocking:
+      val f1 = Future {
+        Future {}
+      }
+      val f2 = Future {}
+    Scheduler.awaitTermination()
+    val outputFile = "test-trace.txt"
+    assert(Scheduler.checkErrors(outputFile = outputFile))
+  }
+
+  @Test
+  def testMultipleExceptionFuture(): Unit = {
+    Scheduler.start(RandomWalk)
+
+    Async.blocking:
+      val f1 = Future {
+        Future {
+          throw new RuntimeException("Test runtime exception 1")
+        }
+        throw new RuntimeException("Test runtime exception 2")
+      }
+      val f2 = Future {}
+    Scheduler.awaitTermination()
+    // 2 failed futures (no ".0." child), 1 successful future with 1 ".0." child
+    assert(Scheduler.getSchedule().size == 4)
+    val outputFile = "test-trace.txt"
+    assert(!Scheduler.checkErrors(outputFile = outputFile))
+    assert(Scheduler.getNumErrors() == 2)
+    assert(Scheduler.getSchedule() == Scheduler.readSchedule(outputFile))
+    val f = new File(outputFile)
+    f.delete()
   }
 
 }
