@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicReference
 import gears.async.Async
 import gears.async.default.given
 
+import java.io.File
+
 @RunWith(classOf[JUnit4])
 class ReplayTests {
 
@@ -37,6 +39,39 @@ class ReplayTests {
 
     Scheduler.awaitTermination()
     assert(list.get() == List(2, 1, 0))
+  }
+
+  @Test
+  def replayRecordedExceptionTest(): Unit = {
+    Scheduler.start(RandomWalk)
+
+    Async.blocking:
+      val f1 = Future {
+        Future {
+          throw new RuntimeException("Test runtime exception 1")
+        }
+        throw new RuntimeException("Test runtime exception 2")
+      }
+      val f2 = Future {}
+    Scheduler.awaitTermination()
+    val outputFile   = "test-trace.txt"
+    val prevSchedule = Scheduler.getSchedule()
+    assert(!Scheduler.checkErrors(outputFile = outputFile))
+
+    Scheduler.start(FixedSchedule(Scheduler.readSchedule(outputFile)))
+    Async.blocking:
+      val f1 = Future {
+        Future {
+          throw new RuntimeException("Test runtime exception 1")
+        }
+        throw new RuntimeException("Test runtime exception 2")
+      }
+      val f2 = Future {}
+    Scheduler.awaitTermination()
+    assert(Scheduler.getNumErrors() == 2)
+    assert(Scheduler.getSchedule() == prevSchedule)
+    val f = new File(outputFile)
+    f.delete()
   }
 
 }

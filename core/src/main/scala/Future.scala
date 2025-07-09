@@ -1,11 +1,16 @@
 package mccct
 
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
 
 import scala.util.{Try, Success, Failure}
 import gears.async
 import gears.async.default.given
+
+import scala.util.control.NonFatal
+import java.io.{File, FileWriter}
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 given rootTask: Task = new Task(null) {
   def run() = ???
@@ -46,11 +51,19 @@ object Future {
       def run() =
         taskController.awaitResult // Wait for scheduler to let the task start
         // Using a promise is enough, since a task is started only once
-        val result = body(using this)
-        submitChild(this) // Schedule the end child before completing this future. It seems to behave more consistently
-        Scheduler
-          .finish() // Signal the scheduler that this function has finished. This will decrement the cnt by one and possibly terminate the scheduler
-        p.complete(Success(result))
+        // Try to execute the body
+        try
+          val result = body(using this)
+          // Schedule the end child before completing this future. It seems to behave more consistently
+          submitChild(this)
+          // Signal the scheduler that this function has finished. This will decrement the cnt by one and possibly terminate the scheduler
+          Scheduler.finish()
+          p.complete(Success(result))
+        catch // If an error is encountered then notify the scheduler of this
+          case NonFatal(e) =>
+            // Call the throwError method, which increments the number of exceptions and finishes this task
+            Scheduler.throwError(e)
+            p.complete(Failure(e)) // Complete the promise/future as a failure
     }
     // Start task on virtual thread
     Thread.ofVirtual().start(task)
@@ -112,6 +125,7 @@ object Scheduler {
 
   private var done        = false
   private var debug       = false
+  private val numErrors   = AtomicInteger(0)
   private var cnt         = 0 // The number of currently running tasks
   private val lock: Lock  = new ReentrantLock
   private val queueChange = lock
@@ -295,7 +309,68 @@ object Scheduler {
       schedule = List()
       hasAllTasks = false
       debug = false
+      numErrors.getAndSet(0)
     finally lock.unlock()
 
   def getDone(): Boolean = done
+
+  def getNumErrors(): Int = numErrors.get()
+
+  def checkErrors(assertion: Boolean = true, outputFile: String = "trace.txt"): Boolean = {
+    try
+      if debug then println("Checking user assertion")
+      assert(assertion) // Check if input assertion holds
+
+      if debug then println("Checking number of errors encountered")
+      assert(numErrors.get() == 0) // Check that no errors were encountered
+      true                         // True representing that no errors were encountered
+    catch                          // If any of the assertions fails
+      case NonFatal(e) =>
+        if debug then
+          println("Exception was encountered")
+          println(s"Number of errors: ${numErrors.get()}")
+        writeSchedule(outputFile) // Write the schedule that failed to file
+        false                     // False representing that some error was encountered
+  }
+
+  private[mccct] def throwError(e: Throwable): Unit = {
+    numErrors.incrementAndGet() // If an error is thrown, increment the number of errors we have encountered
+    finish()                    // Then signal the scheduler that this task has finished (allowing for termination)
+  }
+
+  def readSchedule(fileName: String): List[String] = {
+    var fileData       = ""                                 // The read data
+    val bufferedSource = scala.io.Source.fromFile(fileName) // Get the data as a buffered source
+    for (lines <- bufferedSource.getLines()) {
+      fileData = fileData + lines // Append each line to the fileData
+    }
+    bufferedSource.close()      // Close the file
+    fileData.split(", ").toList // Split the data into the correct strings
+  }
+
+  private[mccct] def writeSchedule(fileName: String): Unit = {
+    if debug then println("Writing schedule to file")
+
+    if !done then
+      // If the scheduler has not finished by the time this function is called, then it means that the schedule is in the reverse order
+      schedule = schedule.reverse
+    var file = fileName
+
+    // If no fileName was specified then generate a file name from the current date and time
+    if file == "" then
+      val currentDateTime = LocalDateTime.now()
+      val formatter       = DateTimeFormatter.ofPattern("dd-MM-yy-HH-mm-ss")
+      val formattedDate   = currentDateTime.format(formatter)
+      file = "trace-" + formattedDate + ".txt"
+
+    val fileWriter = new FileWriter(new File(file)) // Open and create a new file with the given name
+    // An option to this is to write each task on a new line, this would make parsing the file into a oneliner, however long files can be a bit hard to work with.
+    schedule.foreach { s =>
+      fileWriter.write(s + ", ") // Write the task ids seperated by ", "
+    }
+    fileWriter.close() // Close the file writer
+
+    // Switch back the history schedule as it was before
+    if !done then schedule = schedule.reverse
+  }
 }
