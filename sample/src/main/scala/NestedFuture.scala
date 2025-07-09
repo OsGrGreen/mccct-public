@@ -4,9 +4,9 @@ import gears.async.Async
 import gears.async.default.given
 
 object NestedFuture {
-  @main def run(): Unit =
+  /*@main*/ def run(): Unit =
     println("NestedFuture running...")
-    Scheduler.start(FixedSchedule(List("1.", "1.1.", "1.1.1.", "1.1.1.0.", "1.1.")))
+    Scheduler.start(FixedSchedule(List("1.", "1.1.", "1.1.1.", "1.1.1.0.", "1.1.", "1.1.0.", "1.", "1.0.")))
 
     Async.blocking:
       Future {
