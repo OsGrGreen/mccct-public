@@ -84,6 +84,11 @@ abstract class Task(val parent: Task, init: Boolean = true, isEnd: Boolean = fal
 }
 
 class Future[T](underlying: async.Future[T]) {
+
+  def value: Option[Try[T]] = underlying.poll()
+
+  def isCompleted: Boolean = underlying.poll().nonEmpty
+
   def await(using ac: async.Async, task: Task): T = {
 
     /** Signal the scheduler that we are waiting for something If the task calling await is top-level, then `task` will
