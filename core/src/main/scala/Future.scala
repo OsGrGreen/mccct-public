@@ -353,7 +353,7 @@ object Scheduler {
     fileData.split(", ").toList // Split the data into the correct strings
   }
 
-  private[mccct] def writeSchedule(fileName: String): Unit = {
+  private[mccct] def writeSchedule(fileName: String = "", id: String = ""): Unit = {
     if debug then println("Writing schedule to file")
 
     if !done then
@@ -366,14 +366,12 @@ object Scheduler {
       val currentDateTime = LocalDateTime.now()
       val formatter       = DateTimeFormatter.ofPattern("dd-MM-yy-HH-mm-ss")
       val formattedDate   = currentDateTime.format(formatter)
-      file = "trace-" + formattedDate + ".txt"
+      file = "trace_" + id + "-" + formattedDate + ".txt"
 
     val fileWriter = new FileWriter(new File(file)) // Open and create a new file with the given name
     // An option to this is to write each task on a new line, this would make parsing the file into a oneliner, however long files can be a bit hard to work with.
-    schedule.foreach { s =>
-      fileWriter.write(s + ", ") // Write the task ids seperated by ", "
-    }
-    fileWriter.close() // Close the file writer
+    fileWriter.write(schedule.mkString(", ")) // Write the task ids seperated by ", "
+    fileWriter.close()                        // Close the file writer
 
     // Switch back the history schedule as it was before
     if !done then schedule = schedule.reverse
