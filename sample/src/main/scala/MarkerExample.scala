@@ -22,7 +22,7 @@ object MarkerExample {
   @main def runMarkerExample(): Unit = {
     val numIterations = 1000
     println(
-      s"Total hits when running ${numIterations} times is: ${CoverageTracker.trackCoverage(exampleProgram(), FifoAlgorithm, numIterations)}"
+      s"Total hits when running ${numIterations} times is: ${CoverageTracker.trackCoverageIter(exampleProgram(), FifoAlgorithm, numIterations, true)}"
     )
     println(s"Schedule was: ${Scheduler.getSchedule()}")
   }
