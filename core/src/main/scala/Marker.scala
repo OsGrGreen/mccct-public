@@ -1,9 +1,11 @@
 package mccct
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
-import scala.collection.concurrent.TrieMap
 import java.util.concurrent.locks.{Lock, ReentrantLock}
+
+import scala.collection.concurrent.TrieMap
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
+
 import gears.async.{Cancellable, Scheduler}
 import gears.async.default.given
 
@@ -19,65 +21,57 @@ object CoverageTracker {
   private var stopTask: Option[Cancellable] = None
   private var timeoutDelay                  = FiniteDuration(10, SECONDS)
 
-  private def resetStopTask(): Unit = {
-    this.synchronized {
-      // Stops any running tasks
-      stopTask.foreach(_.cancel())
-      // Set the currently running task to none
-      stopTask = None
-    }
+  private def resetStopTask() = this.synchronized {
+    // Stops any running tasks
+    stopTask.foreach(_.cancel())
+    // Set the currently running task to none
+    stopTask = None
   }
 
-  private def stopExecution(delay: FiniteDuration)(using scheduler: Scheduler) = {
-    // Since each future can call marker concurrently it should be necessary with some kind of lock
-    this.synchronized {
-      // First if there is a currently running stopTask that task must be canceled
-      resetStopTask()
-      // Then start a new task with the scheduler that will change the done flag after the delay
-      stopTask = Some(
-        scheduler.schedule(
-          delay,
-          new Runnable {
-            def run() =
-              // Set the done variable to true, allowing the trackCoverage loop to finish
-              done.set(true)
-          }
-        )
+  // Since each future can call marker concurrently it should be necessary with some kind of lock
+  private def stopExecution(delay: FiniteDuration)(using scheduler: Scheduler) = this.synchronized {
+    // First if there is a currently running stopTask that task must be canceled
+    resetStopTask()
+    // Then start a new task with the scheduler that will change the done flag after the delay
+    stopTask = Some(
+      scheduler.schedule(
+        delay,
+        new Runnable {
+          def run() =
+            // Set `done` to true, allowing the loop in `trackCoverage` to finish
+            done.set(true)
+        }
       )
+    )
+  }
+
+  def marker(id: String) = markerMap.updateWith(id) {
+    // If there was a previous value then add 1 to it
+    case Some(value) => Some(value + 1)
+    // If there was no previous value set it to 1, since it has now been hit once
+    case None => {
+      stopExecution(timeoutDelay)
+      Some(1)
     }
   }
 
-  def marker(id: String): Unit =
-    markerMap.updateWith(id) {
-      // If there was a previous value then add 1 to it
-      case Some(value) => Some(value + 1)
-      // If there was no previous value set it to 1, since it has now been hit once
-      case None => {
-        stopExecution(timeoutDelay)
-        Some(1)
-      }
-    }
+  def updateExpectedMarkers(markers: List[String]) = this.synchronized {
+    expectedMarkers = markers
+  }
 
-  def updateExpectedMarkers(markers: List[String]): Unit =
-    this.synchronized {
-      expectedMarkers = markers
-    }
-
-  def missedMarkers: List[String] =
-    this.synchronized {
-      expectedMarkers diff markerMap.keySet.toList
-    }
+  def missedMarkers: List[String] = this.synchronized {
+    expectedMarkers diff markerMap.keySet.toList
+  }
 
   def numMarkers: Int = markerMap.values.sum
 
-  def reset(): Unit =
-    this.synchronized {
-      markerMap.clear()
-      scheduleMarkerMap.clear()
-      expectedMarkers = List[String]()
-      resetStopTask()
-      done.set(false)
-    }
+  def reset() = this.synchronized {
+    markerMap.clear()
+    scheduleMarkerMap.clear()
+    expectedMarkers = List[String]()
+    resetStopTask()
+    done.set(false)
+  }
 
   private def addSchedule(map: TrieMap[String, Int]): Unit =
     val schedule = Scheduler.getSchedule()
@@ -95,7 +89,7 @@ object CoverageTracker {
     }
     result
 
-  private def saveAndQuit(shouldReport: Boolean): Unit = {
+  private def saveAndQuit(shouldReport: Boolean) = {
     // If an error was encountered then that interleaving will be saved
     // If this should be reported to a file, then write each problematic interleaving to its own file
     if !scheduleMarkerMap.isEmpty && shouldReport then
