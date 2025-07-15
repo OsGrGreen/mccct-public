@@ -70,17 +70,25 @@ class RecordTests {
 
   @Test
   def recordExceptionFuture(): Unit = {
+    def testFunc() = {
+      Async.blocking:
+        val f1 = Future {
+          throw new RuntimeException("Test runtime exception")
+        }
+    }
     Scheduler.start(RandomWalk)
-
-    Async.blocking:
-      val f1 = Future {
-        throw new RuntimeException("Test runtime exception")
-      }
+    testFunc()
     Scheduler.awaitTermination()
     val outputFile = "test-trace.txt"
     // Since the future fails it should never be completed, i.e. no ".0." child
+
     assert(Scheduler.getSchedule() == List("1."))
-    assert(!Scheduler.checkErrors(outputFile = outputFile))
+
+    val (hasNoErrors, hasReliableErrors) =
+      Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
+    assert(!hasNoErrors)
+    assert(hasReliableErrors)
+
     assert(Scheduler.getSchedule() == Scheduler.readSchedule(outputFile))
     val f = new File(outputFile)
     f.delete()
@@ -88,35 +96,48 @@ class RecordTests {
 
   @Test
   def testNoExceptionFuture(): Unit = {
+    def testFunc() = {
+      Async.blocking:
+        val f1 = Future {
+          Future {}
+        }
+        val f2 = Future {}
+    }
     Scheduler.start(RandomWalk)
-
-    Async.blocking:
-      val f1 = Future {
-        Future {}
-      }
-      val f2 = Future {}
+    testFunc()
     Scheduler.awaitTermination()
-    val outputFile = "test-trace.txt"
-    assert(Scheduler.checkErrors(outputFile = outputFile))
+    val outputFile                       = "test-trace.txt"
+    val (hasNoErrors, hasReliableErrors) =
+      Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
+    assert(hasNoErrors)
+    assert(!hasReliableErrors)
   }
 
   @Test
   def testMultipleExceptionFuture(): Unit = {
-    Scheduler.start(RandomWalk)
-
-    Async.blocking:
-      val f1 = Future {
-        Future {
-          throw new RuntimeException("Test runtime exception 1")
+    def testFunc() = {
+      Async.blocking:
+        val f1 = Future {
+          Future {
+            throw new RuntimeException("Test runtime exception 1")
+          }
+          throw new RuntimeException("Test runtime exception 2")
         }
-        throw new RuntimeException("Test runtime exception 2")
-      }
-      val f2 = Future {}
+        val f2 = Future {}
+    }
+
+    Scheduler.start(RandomWalk)
+    testFunc()
     Scheduler.awaitTermination()
     // 2 failed futures (no ".0." child), 1 successful future with 1 ".0." child
     assert(Scheduler.getSchedule().size == 4)
     val outputFile = "test-trace.txt"
-    assert(!Scheduler.checkErrors(outputFile = outputFile))
+
+    val (hasNoErrors, hasReliableErrors) =
+      Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
+    assert(!hasNoErrors)
+    assert(hasReliableErrors)
+
     assert(Scheduler.getNumErrors() == 2)
     assert(Scheduler.getSchedule() == Scheduler.readSchedule(outputFile))
     val f = new File(outputFile)
