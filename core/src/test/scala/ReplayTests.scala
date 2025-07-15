@@ -58,10 +58,10 @@ class ReplayTests {
     Scheduler.awaitTermination()
     val outputFile                       = "test-trace.txt"
     val prevSchedule                     = Scheduler.getSchedule()
-    val (hasNoErrors, hasReliableErrors) =
+    val (hasNoErrors, hasReliableResult) =
       Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
     assert(!hasNoErrors)
-    assert(hasReliableErrors)
+    assert(hasReliableResult)
 
     Scheduler.start(FixedSchedule(Scheduler.readSchedule(outputFile)))
     Async.blocking:

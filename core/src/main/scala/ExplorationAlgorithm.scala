@@ -13,7 +13,7 @@ object FifoAlgorithm extends ExplorationAlgorithm:
 
 object RandomWalk extends ExplorationAlgorithm:
   def getNext(readyTasks: List[(Task, Scheduler.Controller)]): Option[List[(Task, Scheduler.Controller)]] = {
-    val n = 1 + util.Random.nextInt(readyTasks.length)
+    val n = 1
 
     val shuffled = util.Random.shuffle(readyTasks)
     val selected = shuffled.take(n)

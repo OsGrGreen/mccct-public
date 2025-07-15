@@ -107,10 +107,10 @@ class RecordTests {
     testFunc()
     Scheduler.awaitTermination()
     val outputFile                       = "test-trace.txt"
-    val (hasNoErrors, hasReliableErrors) =
+    val (hasNoErrors, hasReliableResult) =
       Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
     assert(hasNoErrors)
-    assert(!hasReliableErrors)
+    assert(hasReliableResult)
   }
 
   @Test

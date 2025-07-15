@@ -37,7 +37,7 @@ object Future {
     val endChild        = new Task(parent, isEnd = true) { // The task that is executed on a new thread
       def run() = {
         childController.awaitResult // Wait for scheduler to signal the controller to execute
-        Scheduler.finish()          // Do nothing and finish()
+        Scheduler.finish(this)      // Do nothing and finish()
       }
     }
     Thread.ofVirtual().start(endChild)          // Start this .0. child task on a new virtual thread
@@ -57,7 +57,7 @@ object Future {
           // Schedule the end child before completing this future. It seems to behave more consistently
           submitChild(this)
           // Signal the scheduler that this function has finished. This will decrement the cnt by one and possibly terminate the scheduler
-          Scheduler.finish()
+          Scheduler.finish(this)
           p.complete(Success(result))
         catch // If an error is encountered then notify the scheduler of this
           case NonFatal(e) =>
@@ -96,6 +96,8 @@ class Future[T](underlying: async.Future[T]) {
       * the awaited task before it is able to continue
       */
     Scheduler.stuckSignal(task)
+    // When the task awaits and the scheduler is running sequentially, then the scheduler can allow another task to run
+    Scheduler.decrementSequential(task)
     val resultOrFailure =
       underlying.awaitResult // Wait for the underlying future (the one that is awaited) to finish before continueing
     // surrounding task is now ready
@@ -128,12 +130,14 @@ class Future[T](underlying: async.Future[T]) {
 object Scheduler {
   type Controller = async.Future.Promise[Boolean]
 
-  private var done        = false
-  private var debug       = false
-  private val numErrors   = AtomicInteger(0)
-  private var cnt         = 0 // The number of currently running tasks
-  private val lock: Lock  = new ReentrantLock
-  private val queueChange = lock
+  private var done         = false
+  private var debug        = false
+  private val numErrors    = AtomicInteger(0)
+  private var cnt          = 0 // The number of currently running tasks, used for termination
+  private var activeTasks  = 0 // The number of sequentially running tasks, used for sequential execution
+  private var isSequential = false
+  private val lock: Lock   = new ReentrantLock
+  private val queueChange  = lock
     .newCondition() // Used to control the scheduler. Is either signaled when a new task is added to the readyTasks list or if the scheduler should terminate
   private val termination =
     lock.newCondition() // Used by the main thread to wait until all tasks have finished executing
@@ -150,9 +154,14 @@ object Scheduler {
     */
   private var hasAllTasks: Boolean = false
 
-  def start(alg: ExplorationAlgorithm = RandomWalk, shouldPrint: Boolean = false) =
+  def start(alg: ExplorationAlgorithm = RandomWalk, shouldPrint: Boolean = false, sequential: Boolean = false) =
     Scheduler.reset() // In case the scheduler has been used before, reset it so no information is carried over
-    debug = shouldPrint
+
+    lock.lock()
+    try
+      debug = shouldPrint
+      isSequential = sequential
+    finally lock.unlock()
 
     val schedulerTask = new Runnable {
       def run() =
@@ -163,23 +172,21 @@ object Scheduler {
             // In this case the scheduler will wait until it must execute, to give all top-level tasks an equal chance to be executed
             // If hasAllTasks is true, then no more top-level tasks will be started. This means that new tasks will only be a product/child of current tasks.
             // Therefore, we can continue execution until we terminate
-            if !hasAllTasks then
-              if debug then println("scheduler waiting to get unstuck")
-              stuckState.awaitUninterruptibly()
+            if !hasAllTasks then stuckState.awaitUninterruptibly()
+            // If the scheduler is run sequentially follow those rules
+            if sequential then waitSequential()
 
-            // If we have tasks in the queue we do not need to wait
-            // Since there is no guarantee that there will be other tasks added to the queue if it is non-empty
-            // Therefore, the scheduler should make a choice
-            // Furthermore, it is possible that the queueChange signal for termination has been sent at the end of the while loop
-            // In this case we will get no more queueChange signals, therefore the scheduler must be able to skip the await (or it gets stuck)
-            if (readyTasks.size == 0 && !hasFinished) {
-              if debug then println("Waiting for queueChange")
-              queueChange.awaitUninterruptibly()
+            // If the scheduler needs more data then wait
+            // Repeatedly be called until list is non empty
+            // For parallel it should act as an IF
+            // For sequential execution there can be multiple queueSignals that do not update readyTasks
+            while (!hasFinished && readyTasks.size == 0) {
+              waitTasks() // Wait until we either have a task to execute, or if the scheduler has finished
             }
-
             // If the scheduler reaches this one of two possbilities must be true
             // Either readyTasks is empty, which means that the queueChange signal was triggered because the scheduler should terminate
             // Or readyTasks is non-empty and the scheduler should continue execution
+            if debug then println("\t\tHas finished is: " + hasFinished)
             if hasFinished then
               done = true
               termination.signal()
@@ -189,13 +196,13 @@ object Scheduler {
             val executionTasks = getNextTask(alg) // Get the next task as specified by the algorithm and its controller
             readyTasks =
               readyTasks diff executionTasks // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
-
+            if debug then println("\t\tnumber of tasks to execute: " + executionTasks.size + "\n")
             executionTasks.foreach { (task, ctrl) =>
               if debug then
                 println(s"scheduler signalled (cnt=$cnt) with task: ${task.toString()}")
 
                 println(s"scheduler signalling task $task to continue")
-
+              if !task.isRoot then activeTasks += 1
               // let task start
               ctrl.complete(Success(true)) // Complete the promise allowing the task to execute
               schedule = task.id
@@ -205,6 +212,34 @@ object Scheduler {
         }
     }
     Thread.ofPlatform().start(schedulerTask) // Start the scheduler on a new thread
+
+  private def waitSequential(): Unit =
+    // If the scheduler has atleast one running task, then the scheduler must wait until it finishes before continuing
+    // If the readytasks is empty, the scheduler must wait until we get a new task in it
+    // If the scheduler has finished do not wait
+    if (activeTasks > 0 && !hasFinished) then queueChange.awaitUninterruptibly()
+    // Can get a signal and not updated list, in these cases the scheduler has `waitTasks`
+
+  /** A function that is called when a task is awaited. This makes sure that a new task can be started when a task is
+    * awaited
+    */
+  private[mccct] def decrementSequential(task: Task): Unit =
+    lock.lock()
+    try
+      // If the scheduler is in sequential mode
+      if isSequential && !task.isRoot then
+        activeTasks -= 1     // Then decrement the number of active tasks
+        queueChange.signal() // And signal that a change has been made to the Scheduler
+    finally
+      lock.unlock()
+
+  // If the scheduler has tasks in the queue it does not need to wait
+  // Since there is no guarantee that there will be other tasks added to the queue if it is non-empty
+  // Therefore, the scheduler should make a choice
+  // Furthermore, it is possible that the queueChange signal for termination has been sent at the end of the while loop
+  // In this case the scheduler will get no more queueChange signals, therefore the scheduler must be able to skip the await (or it gets stuck)
+  private def waitTasks(): Unit =
+    if (readyTasks.size == 0 && !hasFinished) then queueChange.awaitUninterruptibly()
 
   /** Tail-recursive function that returns the next task to execute
     *
@@ -218,6 +253,7 @@ object Scheduler {
       case Some(l) => l
       // If algorithm returns None it indicates that the algorithm is not satisfied with the readyTasks list.
       case None => { // There is non-empty queue, however it has the wrong elements
+        if debug then println(readyTasks.map((t, _) => t))
         queueChange
           .awaitUninterruptibly() // Therefore, the scheduler should wait for an update until the algorithm returns a non-empty option
         if hasFinished then // Should not be possible
@@ -296,13 +332,34 @@ object Scheduler {
 
   private[mccct] def getSchedule(): List[String] = schedule
 
-  private[mccct] def finish(): Unit =
+  private[mccct] def finish(task: Task): Unit =
     lock.lock()
     try
       cnt -= 1
+      activeTasks -= 1
       if hasFinished then    // If this was the last task to complete and all tasks have been loaded then
         queueChange.signal() // If the Scheduler is in a state which should terminate, signal the queueChange
+      else if isSequential then
+        queueChange
+          .signal() // If we are in sequential execution then signal a queueChange, should not result in termination
     finally lock.unlock()
+
+  def checkSuspend()(using ac: async.Async, task: Task): Unit =
+    // Create a new taskController for the task
+    val taskController = async.Future.Promise[Boolean]()
+    lock.lock()
+    try
+      // Allow another task to be started
+      if !task.isRoot then activeTasks -= 1
+    finally
+      lock.unlock()
+    // Submit the task, thereby signaling the queueCHange
+    submit(
+      task,
+      taskController,
+      false
+    )
+    taskController.awaitResult // Wait until the task can resume
 
   def reset(): Unit =
     lock.lock()
@@ -315,6 +372,7 @@ object Scheduler {
       hasAllTasks = false
       debug = false
       numErrors.getAndSet(0)
+      activeTasks = 0
     finally lock.unlock()
 
   def getDone(): Boolean = done
@@ -358,10 +416,8 @@ object Scheduler {
     */
   private[mccct] def checkErrors(assertion: Boolean): Boolean = {
     try
-      if debug then println("Checking user assertion")
       assert(assertion) // Check if input assertion holds
 
-      if debug then println("Checking number of errors encountered")
       assert(numErrors.get() == 0) // Check that no errors were encountered
       true                         // True representing that no errors were encountered
     catch                          // If any of the assertions fails
@@ -396,24 +452,25 @@ object Scheduler {
       expected: T,
       erroneousSchedule: List[String],
       iters: Int = 10,
-      acceptRate: Double = 0.75
+      acceptRate: Double = 0.75,
+      sequential: Boolean = false
   ): Boolean = {
     var i           = 0
     var numExpected = 0
     while (i < iters) {
-      Scheduler.start(FixedSchedule(erroneousSchedule))
+      Scheduler.start(FixedSchedule(erroneousSchedule), shouldPrint = false, sequential = sequential)
       val res = func
       Scheduler.awaitTermination()
-      numExpected += (if checkErrors(res == expected) then 0 else 1)
+      numExpected += (if checkErrors(res != expected) then 0 else 1)
       i += 1
     }
     val rate: Double = numExpected.toDouble / iters.toDouble
     rate >= acceptRate
   }
 
-  private[mccct] def throwError(e: Throwable): Unit = {
+  private[mccct] def throwError(e: Throwable)(using task: Task): Unit = {
     numErrors.incrementAndGet() // If an error is thrown, increment the number of errors we have encountered
-    finish()                    // Then signal the scheduler that this task has finished (allowing for termination)
+    finish(task)                // Then signal the scheduler that this task has finished (allowing for termination)
   }
 
   def readSchedule(fileName: String): List[String] = {
