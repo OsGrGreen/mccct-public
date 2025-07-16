@@ -321,7 +321,42 @@ object Scheduler {
 
   def getNumErrors(): Int = numErrors.get()
 
-  def checkErrors(assertion: Boolean = true, outputFile: String = "trace.txt"): Boolean = {
+  /** A function that takes a function that uses futures and an expected result and returns if the tested function
+    * results in NO errors, and if errors reliably occur with the given schedule, and writes the used schedule to file
+    * if the schedule reliably gives errors.
+    *
+    * The function tests this by calling the function `checkReliability` and `checkErrors`.
+    *
+    * @param testedFunc,
+    *   the function to be tested
+    * @param expectedOutput,
+    *   the expected output of the function
+    * @param outputFile,
+    *   the file name in which to write the schedule (if possible)
+    * @return
+    */
+  def handleErrors[T](
+      testedFunc: => T,
+      expectedOutput: T,
+      schedule: List[String],
+      outputFile: String = "trace.txt"
+  ): (Boolean, Boolean) = {
+    val reliable    = checkReliability(testedFunc, expectedOutput, schedule)
+    val hasNoErrors = checkErrors(true)
+    if reliable then writeSchedule(outputFile)
+    (hasNoErrors, reliable)
+  }
+
+  /** A function that returns true if the scheduler has encountered NO errors in its last run and if the given assertion
+    * holds.
+    *
+    * Otherwise, if some errors have occured, then the function returns false.
+    *
+    * @param assertion,
+    *   the given assertion to test (for example if output is as expected).
+    * @return
+    */
+  private[mccct] def checkErrors(assertion: Boolean): Boolean = {
     try
       if debug then println("Checking user assertion")
       assert(assertion) // Check if input assertion holds
@@ -334,8 +369,46 @@ object Scheduler {
         if debug then
           println("Exception was encountered")
           println(s"Number of errors: ${numErrors.get()}")
-        writeSchedule(outputFile) // Write the schedule that failed to file
-        false                     // False representing that some error was encountered
+        false // False representing that some error was encountered
+  }
+
+  /** A function that repeatedly tests a given function on a given schedule to see if it (most of the time) gives the
+    * same expected result.
+    *
+    * Returns `true` if the given schedule reliably gives errors (more than `acceptRate` percentage of times), otherwise
+    * false.
+    *
+    * @param func,
+    *   the function to be tested
+    * @param expected,
+    *   the expected result of `func`
+    * @param erroneousSchedule,
+    *   the schedule to test `func` on
+    * @param iters,
+    *   how many times `func` should be tested
+    * @param acceptRate,
+    *   the minimum percentage of runs that have to either give error or not get expected output for the function to
+    *   return true
+    * @return
+    */
+  private[mccct] def checkReliability[T](
+      func: => T,
+      expected: T,
+      erroneousSchedule: List[String],
+      iters: Int = 10,
+      acceptRate: Double = 0.75
+  ): Boolean = {
+    var i           = 0
+    var numExpected = 0
+    while (i < iters) {
+      Scheduler.start(FixedSchedule(erroneousSchedule))
+      val res = func
+      Scheduler.awaitTermination()
+      numExpected += (if checkErrors(res == expected) then 0 else 1)
+      i += 1
+    }
+    val rate: Double = numExpected.toDouble / iters.toDouble
+    rate >= acceptRate
   }
 
   private[mccct] def throwError(e: Throwable): Unit = {

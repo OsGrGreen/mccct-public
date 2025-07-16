@@ -43,20 +43,25 @@ class ReplayTests {
 
   @Test
   def replayRecordedExceptionTest(): Unit = {
-    Scheduler.start(RandomWalk)
-
-    Async.blocking:
-      val f1 = Future {
-        Future {
-          throw new RuntimeException("Test runtime exception 1")
+    def testFunc(): Unit = {
+      Async.blocking:
+        val f1 = Future {
+          Future {
+            throw new RuntimeException("Test runtime exception 1")
+          }
+          throw new RuntimeException("Test runtime exception 2")
         }
-        throw new RuntimeException("Test runtime exception 2")
-      }
-      val f2 = Future {}
+        val f2 = Future {}
+    }
+    Scheduler.start(RandomWalk)
+    testFunc()
     Scheduler.awaitTermination()
-    val outputFile   = "test-trace.txt"
-    val prevSchedule = Scheduler.getSchedule()
-    assert(!Scheduler.checkErrors(outputFile = outputFile))
+    val outputFile                       = "test-trace.txt"
+    val prevSchedule                     = Scheduler.getSchedule()
+    val (hasNoErrors, hasReliableErrors) =
+      Scheduler.handleErrors(testFunc(), (), Scheduler.getSchedule(), outputFile = outputFile)
+    assert(!hasNoErrors)
+    assert(hasReliableErrors)
 
     Scheduler.start(FixedSchedule(Scheduler.readSchedule(outputFile)))
     Async.blocking:
