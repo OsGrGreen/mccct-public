@@ -31,7 +31,8 @@ class FixedSchedule(var targetSchedule: List[String]) extends ExplorationAlgorit
         if target.isEmpty then return None
         targetSchedule = targetSchedule.tail // Remove head from schedule
         Some(List(target.head))              // Take target task and control
-      case None => None
+      case None =>
+        None
   }
 
   def prepareNext(taskHistory: List[String]): Unit = {}

@@ -19,7 +19,8 @@ object MarkerExample {
       }
   }
 
-  @main def runMarkerExample(): Unit = {
+  /*@main*/
+  def runMarkerExample(): Unit = {
     val numIterations = 1000
     println(
       s"Total hits when running ${numIterations} times is: ${CoverageTracker.trackCoverageIter(exampleProgram(), FifoAlgorithm, numIterations, true)}"
