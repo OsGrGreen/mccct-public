@@ -5,19 +5,25 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
+import Scheduler.checkSuspend
 
 import gears.async.Async
 import gears.async.default.given
 
 @RunWith(classOf[JUnit4])
-class SchedulerTests {
+class SchedulerTests() {
 
   /** A test that tests if all futures are executed when using the RandomWalk algorithm In this test there are no
     * awaits, however all futures should still be executed, and completed before the main thread can continue
     */
   @Test
-  def exploreAllRandomWalkTest(): Unit = {
-    Scheduler.start(RandomWalk)
+  def exploreAllRandomWalkTest(): Unit =
+    exploreAllRandomWalk(false)
+    exploreAllRandomWalk(true)
+
+  def exploreAllRandomWalk(isSequential: Boolean): Unit = {
+    Scheduler.start(RandomWalk, sequential = isSequential)
     val list = AtomicReference(List[Int]())
 
     Async.blocking:
@@ -48,8 +54,12 @@ class SchedulerTests {
     * child task)
     */
   @Test
-  def randomWalkWithAwaitTest(): Unit = {
-    Scheduler.start(RandomWalk)
+  def randomWalkWithAwaitTest(): Unit =
+    randomWalkWithAwait(false)
+    randomWalkWithAwait(true)
+
+  def randomWalkWithAwait(isSequential: Boolean): Unit = {
+    Scheduler.start(RandomWalk, sequential = isSequential)
     val list = AtomicReference(List[Int]())
 
     Async.blocking:
@@ -109,8 +119,12 @@ class SchedulerTests {
     *   2. Futures are executed in the expected order
     */
   @Test
-  def awaitTest(): Unit = {
-    Scheduler.start(RandomWalk)
+  def awaitTestSeq(): Unit =
+    awaitTest(false)
+    awaitTest(true)
+
+  def awaitTest(isSequential: Boolean): Unit = {
+    Scheduler.start(RandomWalk, shouldPrint = false, sequential = isSequential)
     val list = AtomicReference(List[Int]())
 
     Async.blocking:
@@ -140,8 +154,12 @@ class SchedulerTests {
     * tasks have to be started before execution is allowed
     */
   @Test
-  def noAwaitTest(): Unit = {
-    Scheduler.start(FifoAlgorithm)
+  def noAwaitTest(): Unit =
+    noAwait(false)
+    noAwait(true)
+
+  def noAwait(isSequential: Boolean): Unit = {
+    Scheduler.start(FifoAlgorithm, sequential = isSequential)
     val list = AtomicReference(List[Int]())
     Async.blocking:
       val f1 = Future {
@@ -168,8 +186,12 @@ class SchedulerTests {
     *   2. What happens if an await is the last thing to happen before awaitTermination
     */
   @Test
-  def awaitNothingBeforeTest(): Unit = {
-    Scheduler.start(RandomWalk)
+  def awaitNothingBeforeTest(): Unit =
+    awaitNothingBefore(false)
+    awaitNothingBefore(true)
+
+  def awaitNothingBefore(isSequential: Boolean): Unit = {
+    Scheduler.start(RandomWalk, sequential = isSequential)
     val list = AtomicReference(List[Int]())
 
     Async.blocking:
@@ -185,13 +207,61 @@ class SchedulerTests {
 
   @Test
   def stressExistingTests(): Unit = {
+    // There seems to be a known error here in which the Scheduler can become stuck...
+    println("Starting stress tests parallel")
     var counter = 1_000
     while (counter > 0) {
-      awaitTest()
-      noAwaitTest()
-      awaitNothingBeforeTest()
+      awaitTest(false)
+      noAwait(false)
+      awaitNothingBefore(false)
       counter -= 1
     }
+    println("Starting stress tests sequential")
+    counter = 1_000
+    while (counter > 0) {
+      awaitTest(true)
+      noAwait(true)
+      awaitNothingBefore(true)
+      counter -= 1
+    }
+  }
+
+  @Test
+  def reliableFunctionTest(): Unit = {
+    val s = List("1.", "2.", "1.", "2.", "1.", "2.", "2.", "2.0.", "1.", "1.0.", "", "")
+    def reliableFunc(): (Boolean, Boolean) = {
+      val map                                                                 = ConcurrentHashMap[Int, Int]()
+      def insert(key: Int, value: Int)(using a: Async, parent: Task): Boolean = {
+        checkSuspend()
+        if (!map.containsKey(key))
+          checkSuspend()
+          map.put(key, value)
+          checkSuspend()
+          true
+        else
+          checkSuspend()
+          checkSuspend()
+          false
+      }
+      var v1 = false
+      var v2 = false
+      Async.blocking:
+        val t1 = Future { insert(1, 0) }
+        val t2 = Future { insert(1, 1) }
+
+        v1 = t1.await
+        v2 = t2.await
+
+      return (v1, v2)
+    }
+    var r = (false, false)
+    Scheduler.start(FixedSchedule(s), shouldPrint = false, sequential = true)
+    r = reliableFunc()
+    Scheduler.awaitTermination()
+    val schedule = Scheduler.getSchedule()
+    assert(r._1)
+    assert(r._2)
+    assert(Scheduler.checkReliability(reliableFunc(), (true, true), schedule, 10, 1.0, true))
   }
 
   /** A function that determines if an element occurs before or after another element
