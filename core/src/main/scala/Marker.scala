@@ -136,7 +136,7 @@ object CoverageTracker {
       alg: ExplorationAlgorithm,
       numIter: Int,
       sequential: Boolean = false,
-      shouldReport: Boolean = true
+      shouldReport: Boolean = false
   ): (TrieMap[String, Int], TrieMap[List[String], List[String]]) = {
     var counter = 0
     var prevMap = TrieMap[String, Int]()
@@ -154,7 +154,7 @@ object CoverageTracker {
       expected: List[String],
       sequential: Boolean = false,
       delay: FiniteDuration = FiniteDuration(120, SECONDS),
-      shouldReport: Boolean = true
+      shouldReport: Boolean = false
   ): (TrieMap[String, Int], TrieMap[List[String], List[String]]) = {
     timeoutDelay = delay
     expectedMarkers = expected
