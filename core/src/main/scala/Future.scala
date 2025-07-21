@@ -149,12 +149,12 @@ class Future[T](underlying: async.Future[T]) {
 
 object Scheduler {
 
-  private var done         = false
-  private[mccct] var debug = false
-  private val numErrors    = AtomicInteger(0)
-  private var hasTimedOut  = false
-  private var cnt          = 0                // The number of currently running tasks, used for termination
-  private var activeTasks  = AtomicInteger(0) // The number of sequentially running tasks, used for sequential execution
+  private var done               = false
+  private[mccct] var debug       = false
+  private val numErrors          = AtomicInteger(0)
+  private[mccct] var hasTimedOut = false
+  private var cnt                = 0 // The number of currently running tasks, used for termination
+  private var activeTasks = AtomicInteger(0) // The number of sequentially running tasks, used for sequential execution
   private[mccct] var isSequential = false
   private val lock: Lock          = new ReentrantLock
   private val queueChange         = lock
@@ -202,7 +202,7 @@ object Scheduler {
             // For parallel it should act as an IF
             // For sequential execution there can be multiple queueSignals that do not update readyTasks
             while (!hasFinished && readyTasks.size == 0) {
-              if debug then println("Waiting for task")
+              if debug then println(s"Waiting for task (${cnt}, ${readyTasks})")
               waitTasks() // Wait until we either have a task to execute, or if the scheduler has finished
             }
             if debug then println(s"Got non-empty queue (${readyTasks.map(t => t)})")
@@ -424,22 +424,17 @@ object Scheduler {
   private def timeoutThreads(id: Int, write: Boolean, ctrl: Controller): Unit =
     lock.lockInterruptibly()
     try
-      if !hasTimedOut then
-        hasTimedOut = true
-        readyTasks = readyTasks.filter(t => t.isRoot)
-        if write then
-          println(
-            s"A possible deadlock has occured for ctrl ${ctrl}\nThe `checkSuspend` that triggered this timeout had id: ${id}"
-          )
-          writeSchedule()
-        startedThreads.map((t, c) =>
-          if !t.isInterrupted() then
-            c.addTimeoutTask(None) // Remove the scheduled timeout task if any
-            t.interrupt()          // Then interrupt the thread
-        )
-        queueChange.signal()
-    finally
-      lock.unlock()
+      readyTasks = readyTasks.filter(t => t.isRoot)
+      println(
+        s"A possible deadlock has occured for ctrl ${ctrl}\nThe `checkSuspend` that triggered this timeout had id: ${id}"
+      )
+      if write then writeSchedule()
+      startedThreads.map((t, c) =>
+        if !t.isInterrupted() then
+          c.addTimeoutTask(None) // Remove the scheduled timeout task if any
+          t.interrupt()          // Then interrupt the thread
+      )
+    finally lock.unlock()
 
   /** A function that creates a sheduled timeout task, suspending execution of running tasks.
     *
@@ -464,7 +459,9 @@ object Scheduler {
               // If the controller is in readyTasks then it is not necessarily stuck, it may just be waiting for execution (for example in sequential mode).
               // In this case a timeout should not be thrown, instead restart the timeout.
               // Otherwise, call `timeoutThreads`
-              if !(readyTasks.contains(task)) then timeoutThreads(id, write, task.controller)
+              if !(readyTasks.contains(task)) then
+                hasTimedOut = true
+                timeoutThreads(id, write, task.controller)
               else task.controller.addTimeoutTask(Some(addTimeout(id, write, delay)))
           finally
             lock.unlock()

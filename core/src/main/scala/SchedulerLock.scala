@@ -20,7 +20,7 @@ class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
     // For parallel execution we can ignore this and continue as usual
     lockLock.lockInterruptibly()
     // Some tasks, like the timeout timer should not get affected by the sequential execution, therefore they should be able to skip this step and continuously wait
-    while (superLock.isLocked() && Scheduler.isSequential && !hasPrio) {
+    while (superLock.isLocked() && Scheduler.isSequential && !hasPrio && !Scheduler.hasTimedOut) {
       // Decrement the counter, which can allow another task to start.
       Scheduler.decrementSequential(task.controller)
       // Create a new taskController for making the thread wait.
