@@ -480,7 +480,7 @@ object Scheduler {
     var i           = 0
     var numExpected = 0
     while (i < iters) {
-      println(s"Checking reliability iteration ${i + 1}/${iters}")
+      println(s"Checking reliability iteration ${i + 1}/$iters")
       Scheduler.start(FixedSchedule(erroneousSchedule), shouldPrint = debug, sequential = sequential)
       val res = func
       Scheduler.awaitTermination()
@@ -488,7 +488,7 @@ object Scheduler {
       i += 1
     }
     val rate: Double = numExpected.toDouble / iters.toDouble
-    println(s"Rate was: ${rate}")
+    println(s"Rate was: $rate")
     rate >= acceptRate
   }
 
