@@ -2,13 +2,15 @@ package mccct
 
 import gears.async
 import gears.async.default.given
-import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
+import java.util.concurrent.locks.{Lock, ReentrantLock}
 import java.util.concurrent.CyclicBarrier
 
-class SchedulerLock(val superLock: ReentrantLock) {
+class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
 
-  val lockLock: Lock =
-    new ReentrantLock // Lock making sure that only one task can check if it can acquire lock, and then acquire lock at the same time
+  // Lock making sure that only one task can *atomically*
+  // (a) check if it can acquire the lock, and then
+  // (b) acquire the lock
+  val lockLock: Lock = new ReentrantLock
 
   def lock(hasPrio: Boolean = false)(using ac: async.Async, task: Task): Unit =
     // If the scheduler is running in sequential mode it can become stuck if:
@@ -96,13 +98,13 @@ class SchedulerCondition(val superLock: SchedulerLock) {
         // Wait until both the lock and the condition has signaled the barrier
         // Should always be done after the condition has called `await`
         bar.await()
-        // Only reset barrier in lock, otherwise lock can become stuck
+        // Only reset barrier when holding `queueLock`, otherwise lock can become stuck
         bar.reset()
         awaitQueue = awaitQueue.tail
     finally
       queueLock.unlock()
 
-  /** A function that signals all waiting tasks to continue Is used to mirror the behaviour of `signalAll()`
+  /** A function that signals all waiting tasks to continue. Used to mirror the behaviour of `signalAll()`.
     */
   def signalQueue(): Unit =
     queueLock.lock()

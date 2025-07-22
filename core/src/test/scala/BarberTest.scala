@@ -14,7 +14,6 @@ import gears.async.default.given
 import gears.async.Scheduler
 import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
-import java.util.concurrent.locks.{ReentrantLock}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicBoolean}
 import java.io.File
 
@@ -24,16 +23,16 @@ class BarberTest {
   val done = AtomicBoolean(false)
   val rnd  = new scala.util.Random
 
-  class Barber() {
+  class Barber {
 
     var freeSeats = 2
 
     var waitingQueue = List[Int]()
 
-    val lock: SchedulerLock = SchedulerLock(new ReentrantLock)
-    val barberReady         = lock.newCondition()
-    val customerReady       = lock.newCondition()
-    val terminationLock     = lock.newCondition()
+    val lock            = SchedulerLock()
+    val barberReady     = lock.newCondition()
+    val customerReady   = lock.newCondition()
+    val terminationLock = lock.newCondition()
 
     var barberIsSleeping = true
     var servedCustomer   = 0
@@ -123,12 +122,12 @@ class BarberTest {
 
   @Test
   def barberShop(): Unit = {
-    println("Starting test")
+    println("Starting barber shop test")
     CoverageTracker.reset()
     def barberFunc(): Unit = {
       val numCustomers = 6
       done.set(false)
-      val barb = new Barber()
+      val barb = new Barber
       Async.blocking:
         val f1 = Future {
           Future {
