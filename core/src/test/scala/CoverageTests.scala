@@ -126,7 +126,14 @@ class CoverageTests {
     // Run the CoverageTracker until marker "1." and "3." has been hit
     // Since "2." will never be reached, since the error is thrown before the marker is hit
     val (coverageReport, failedRuns) =
-      CoverageTracker.trackCoverage(testFunction(), RandomWalk, List("1.", "3."), FiniteDuration(120, SECONDS), false)
+      CoverageTracker.trackCoverage(
+        testFunction(),
+        RandomWalk,
+        List("1.", "3."),
+        false,
+        FiniteDuration(120, SECONDS),
+        false
+      )
     assert(coverageReport.get("2.") == None)
     assert(coverageReport("1.") >= 1)
     assert(coverageReport("3.") >= 1)
@@ -155,6 +162,7 @@ class CoverageTests {
         testFunction(),
         RandomWalk,
         List("1.", "2.", "3."),
+        false,
         FiniteDuration(120, SECONDS),
         false
       )
@@ -178,7 +186,14 @@ class CoverageTests {
     CoverageTracker.reset()
     // Marker "2." does not exist and will never be hit, triggering an infinite loop
     val (coverageReport, failedSchedules) =
-      CoverageTracker.trackCoverage(testFunction(), RandomWalk, List("1.", "2."), FiniteDuration(5, SECONDS), false)
+      CoverageTracker.trackCoverage(
+        testFunction(),
+        RandomWalk,
+        List("1.", "2."),
+        false,
+        FiniteDuration(5, SECONDS),
+        false
+      )
     assert(!coverageReport.isEmpty)
     assert(CoverageTracker.missedMarkers.size == 1)
   }

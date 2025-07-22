@@ -47,7 +47,8 @@ object CoverageTracker {
 
   def marker(id: String) = markerMap.updateWith(id) {
     // If there was a previous value then add 1 to it
-    case Some(value) => Some(value + 1)
+    case Some(value) =>
+      Some(value + 1)
     // If there was no previous value set it to 1, since it has now been hit once
     case None => {
       stopExecution(timeoutDelay)
@@ -104,10 +105,11 @@ object CoverageTracker {
   private def runIteration(
       testFunction: => Unit,
       alg: ExplorationAlgorithm,
+      sequential: Boolean,
       prevMap: TrieMap[String, Int]
   ): TrieMap[String, Int] = {
     // Run the function with the given algorithm
-    Scheduler.start(alg)
+    Scheduler.start(alg, shouldPrint = false, sequential = sequential)
     testFunction
     Scheduler.awaitTermination()
     // If the scheduler has encountered any errors this run, then the getNumErrors will be non-zero
@@ -133,12 +135,13 @@ object CoverageTracker {
       testFunction: => Unit,
       alg: ExplorationAlgorithm,
       numIter: Int,
+      sequential: Boolean = false,
       shouldReport: Boolean = true
   ): (TrieMap[String, Int], TrieMap[List[String], List[String]]) = {
     var counter = 0
     var prevMap = TrieMap[String, Int]()
     while (counter < numIter) {
-      prevMap = runIteration(testFunction, alg, prevMap)
+      prevMap = runIteration(testFunction, alg, sequential, prevMap)
       counter += 1
     }
     saveAndQuit(shouldReport)
@@ -149,14 +152,17 @@ object CoverageTracker {
       testFunction: => Unit,
       alg: ExplorationAlgorithm,
       expected: List[String],
+      sequential: Boolean = false,
       delay: FiniteDuration = FiniteDuration(120, SECONDS),
       shouldReport: Boolean = true
   ): (TrieMap[String, Int], TrieMap[List[String], List[String]]) = {
     timeoutDelay = delay
     expectedMarkers = expected
-    var prevMap = TrieMap[String, Int]()
+    var hasNoErrors = false
+    var prevMap     = TrieMap[String, Int]()
     while (!done.get()) {
-      prevMap = runIteration(testFunction, alg, prevMap)
+      prevMap = runIteration(testFunction, alg, sequential, prevMap)
+      hasNoErrors = Scheduler.checkErrors(true)
       // If `missedMarkers` returns an empty list, then all expected markers have been hit
       // In this case we set the `boolean` done to true, which will terminate the while loop..
       if missedMarkers == List() then done.set(true)
