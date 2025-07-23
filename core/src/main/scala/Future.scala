@@ -14,7 +14,7 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CyclicBarrier
 
-given rootTask: Task = new Task(null) {
+given rootTask: Task = new Task(Controller(null)) {
   def run() = ???
 }
 
@@ -34,59 +34,56 @@ object Future {
     * @param a
     *   async context
     */
-  private def submitChild(parent: Task)(using a: async.Async): Unit = {
-    val childController = async.Future.Promise[Boolean]()  // Controller for the scheduler to allow execution
-    val endChild        = new Task(parent, isEnd = true) { // The task that is executed on a new thread
+  private def submitChild(parent: Controller)(using a: async.Async): Unit = {
+    val endChild = new Task(Controller(parent, isEnd = true)) { // The task that is executed on a new thread
       def run() = {
-        childController.awaitResult // Wait for scheduler to signal the controller to execute
-        Scheduler.finish(this)      // Do nothing and finish()
+        this.await()                      // Wait for scheduler to signal the controller to execute
+        Scheduler.finish(this.controller) // Do nothing and finish()
       }
     }
-    Thread.ofVirtual().start(endChild)          // Start this .0. child task on a new virtual thread
-    Scheduler.submit(endChild, childController) // Submit the child task to the scheduler
+    Thread.ofVirtual().start(endChild)    // Start this .0. child task on a new virtual thread
+    Scheduler.submit(endChild.controller) // Submit the child task to the scheduler
   }
 
   def apply[T](body: Task ?=> T)(using a: async.Async, parent: Task): Future[T] =
-    val p              = async.Future.Promise[T]()
-    val taskController = async.Future.Promise[Boolean]()
-    val task           = new Task(parent) {
+    val p    = async.Future.Promise[T]()
+    val task = new Task(Controller(parent.controller)) {
       def run() =
-        taskController.awaitResult // Wait for scheduler to let the task start
+        this.await() // Wait for scheduler to let the task start
         // Using a promise is enough, since a task is started only once
         // Try to execute the body
         try
           val result = body(using this)
           // Schedule the end child before completing this future. It seems to behave more consistently
-          submitChild(this)
+          submitChild(this.controller)
           // Signal the scheduler that this function has finished. This will decrement the cnt by one and possibly terminate the scheduler
-          Scheduler.finish(this)
+          Scheduler.finish(this.controller)
           p.complete(Success(result))
         catch // If an error is encountered then notify the scheduler of this
           case NonFatal(e) =>
             // Call the throwError method, which increments the number of exceptions and finishes this task
-            Scheduler.throwError(e)
+            Scheduler.throwError(e, this.controller)
             p.complete(Failure(e)) // Complete the promise/future as a failure
     }
     // Start task on virtual thread
     Thread.ofVirtual().start(task)
     // Submit new ready task to CCT scheduler
-    Scheduler.submit(task, taskController)
+    Scheduler.submit(task.controller)
     new Future(p.asFuture)
 }
 
-abstract class Task(val parent: Task, init: Boolean = true, isEnd: Boolean = false) extends Runnable {
-  val ready                    = AtomicBoolean(init)
-  final def isRoot             = parent == null // Signifies if it is root, which means that it is the main thread
-  var id: Id                   = Id(parent, isEnd)
-  final def isReady(): Boolean = ready.get()
+abstract class Task(val controller: Controller, init: Boolean = true) extends Runnable {
+  val ready        = AtomicBoolean(init)
+  final def isRoot = controller.parent == null // Signifies if it is root, which means that it is the main thread
+
   def run(): Unit
-  final def isTop: Boolean = parent == rootTask
 
-  /** Barrier used by conditions to pause execution of a task and await a signal
-    */
-  val barrier: CyclicBarrier = new CyclicBarrier(2)
+  final def isTop: Boolean = controller.parent.parent == null
 
-  override def toString(): String = s"[${id.getId()},${id.getNumChildren()} , ${isRoot}, ${isTop}]"
+  def await() = controller.await()
+
+  override def toString(): String =
+    s"[${controller.id.getId()},${controller.id.getNumChildren()} , ${isRoot}, ${isTop}]"
 }
 
 class Future[T](underlying: async.Future[T]) {
@@ -101,25 +98,20 @@ class Future[T](underlying: async.Future[T]) {
       * be the root task Waiting for a top-level task means that the scheduler is in a "stuck" state and must execute
       * the awaited task before it is able to continue
       */
-    Scheduler.stuckSignal(task)
+    Scheduler.stuckSignal(task.controller)
     // When the task awaits and the scheduler is running sequentially, then the scheduler can allow another task to run
-    Scheduler.decrementSequential(task)
+    Scheduler.decrementSequential(task.controller)
     val resultOrFailure =
       underlying.awaitResult // Wait for the underlying future (the one that is awaited) to finish before continueing
-    // surrounding task is now ready
-    task.ready.set(true)
-
-    val taskController = async.Future.Promise[Boolean]()
 
     // inform CCT scheduler --> should move task to ready queue
     Scheduler.submit(
-      task,
-      taskController,
+      task.controller,
       false
     ) // Since the cnt of this task has already been accounted for do not increase the cnt again when this task is resubmitted to the scheduler
 
     // wait for scheduler to resume task
-    taskController.awaitResult
+    task.controller.await()
 
     /** Signal the scheduler that it is no longer in a stuck state If a top level task was awaited then the Scheduler
       * should now suspend execution until all top-level tasks have been submitted to the scheduler or the scheduler
@@ -127,13 +119,12 @@ class Future[T](underlying: async.Future[T]) {
       *
       * Also allows the scheduler to terminate
       */
-    Scheduler.noLongerStuck(task)
+    Scheduler.noLongerStuck(task.controller)
     resultOrFailure.get
   }
 }
 
 object Scheduler {
-  type Controller = async.Future.Promise[Boolean]
 
   private var done        = false
   private var debug       = false
@@ -149,7 +140,7 @@ object Scheduler {
   /** Used to signal when execution from a stuck state must continue */
   private val stuckState = lock.newCondition()
 
-  private var readyTasks: List[(Task, Controller)] =
+  private var readyTasks: List[Controller] =
     List() // The list of readyTasks in which the exploration algorithm can choose one to execute
 
   private var schedule: List[String] = List() // The recorded schedule
@@ -180,7 +171,7 @@ object Scheduler {
             if !hasAllTasks then stuckState.awaitUninterruptibly()
             // If the scheduler is run sequentially follow those rules
             if sequential then waitSequential()
-            if debug then println("List after seq wait is: " + readyTasks.map((t, _) => t))
+            if debug then println("List after seq wait is: " + readyTasks.map(t => t))
             // If the scheduler needs more data then wait
             // Repeatedly be called until list is non empty
             // For parallel it should act as an IF
@@ -189,7 +180,7 @@ object Scheduler {
               if debug then println("Waiting for task")
               waitTasks() // Wait until we either have a task to execute, or if the scheduler has finished
             }
-            if debug then println(s"Got non-empty queue (${readyTasks.map((t, _) => t)})")
+            if debug then println(s"Got non-empty queue (${readyTasks.map(t => t)})")
             // If the scheduler reaches this one of two possbilities must be true
             // Either readyTasks is empty, which means that the queueChange signal was triggered because the scheduler should terminate
             // Or readyTasks is non-empty and the scheduler should continue execution
@@ -203,14 +194,15 @@ object Scheduler {
             readyTasks =
               readyTasks diff executionTasks // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
             if debug then println("\t\tnumber of tasks to execute: " + executionTasks.size + "\n")
-            executionTasks.foreach { (task, ctrl) =>
+            executionTasks.foreach { ctrl =>
               if debug then
-                println(s"scheduler signalled (cnt=$cnt) with task: ${task.toString()}")
-                println(s"scheduler signalling task $task to continue")
-              if !task.isRoot then activeTasks.getAndIncrement()
+                println(s"scheduler signalled (cnt=$cnt) with task: ${ctrl.toString()}")
+                println(s"scheduler signalling task $ctrl to continue")
+              if !ctrl.isRoot then activeTasks.getAndIncrement()
               // let task start
-              ctrl.complete(Success(true)) // Complete the promise allowing the task to execute
-              schedule = task.id
+              ctrl.await()
+              ctrl.reset()
+              schedule = ctrl.id
                 .getId() :: schedule // Add the id of the task to the history/schedule of executed tasks (this run of the schedule)
             }
           finally lock.unlock()
@@ -237,11 +229,11 @@ object Scheduler {
   /** A function that is called when a task is awaited. This makes sure that a new task can be started when a task is
     * awaited
     */
-  private[mccct] def decrementSequential(task: Task): Unit =
+  private[mccct] def decrementSequential(ctrl: Controller): Unit =
     lock.lock()
     try
       // If the scheduler is in sequential mode
-      if isSequential && !task.isRoot then
+      if isSequential && !ctrl.isRoot then
         activeTasks.getAndDecrement() // Then decrement the number of active tasks
         queueChange.signal()          // And signal that a change has been made to the Scheduler
     finally
@@ -262,7 +254,7 @@ object Scheduler {
     * @return
     *   the task to be executed
     */
-  private def getNextTask(alg: ExplorationAlgorithm): List[(Task, Controller)] =
+  private def getNextTask(alg: ExplorationAlgorithm): List[Controller] =
     alg.getNext(readyTasks) match
       case Some(l) => l
       // If algorithm returns None it indicates that the algorithm is not satisfied with the readyTasks list.
@@ -297,11 +289,11 @@ object Scheduler {
     * @param task
     *   the task that has been suspended
     */
-  private[mccct] def stuckSignal(task: Task) =
+  private[mccct] def stuckSignal(ctrl: Controller) =
     lock.lock()
     try
       // If parent is null, then this must be a root task
-      if task.isRoot then   // Which means that execution must continue until the awaited top-level task is completed
+      if ctrl.isRoot then   // Which means that execution must continue until the awaited top-level task is completed
         hasAllTasks = true  // Allow scheduler to execute until `hasAllTasks` is set to false
         cnt += 1            // Make sure that the scheduler can not finish while waiting for a top-level task
         stuckState.signal() // Signal the lock that the scheduler must continue
@@ -315,11 +307,11 @@ object Scheduler {
     * @param task
     *   the task that has been suspended
     */
-  private[mccct] def noLongerStuck(task: Task) =
+  private[mccct] def noLongerStuck(ctrl: Controller) =
     lock.lock()
     try
       // If parent is null, then this must be a root task
-      if task.isRoot then // Which means that execution must continue until the awaited top-level task is completed
+      if ctrl.isRoot then // Which means that execution must continue until the awaited top-level task is completed
         hasAllTasks =
           false // In this case we have now executed the blocking task, and may once again wait until we have loaded all top-level tasks (or become stuck)
         cnt -= 1 // Scheduler may now finish when possible
@@ -330,8 +322,7 @@ object Scheduler {
     cnt == 0 && readyTasks.size == 0 && hasAllTasks
 
   private[mccct] def submit(
-      task: Task,
-      taskController: async.Future.Promise[Boolean],
+      ctrl: Controller,
       shouldIncrement: Boolean = true
   ): Unit =
     lock.lock()
@@ -339,13 +330,13 @@ object Scheduler {
       if shouldIncrement
       then // Should the task be counted as a new task or not (for example if it has already been started but had to wait)
         cnt += 1
-      readyTasks = (task, taskController) :: readyTasks
+      readyTasks = ctrl :: readyTasks
       queueChange.signal()
     finally lock.unlock()
 
   private[mccct] def getSchedule(): List[String] = schedule
 
-  private[mccct] def finish(task: Task): Unit =
+  private[mccct] def finish(ctrl: Controller): Unit =
     lock.lock()
     try
       cnt -= 1
@@ -359,16 +350,14 @@ object Scheduler {
 
   def checkSuspend()(using ac: async.Async, task: Task): Unit =
     // Create a new taskController for the task
-    val taskController = async.Future.Promise[Boolean]()
     // Allow another task to be started
     if !task.isRoot then activeTasks.getAndDecrement()
     // Submit the task, thereby signaling the queueCHange
     submit(
-      task,
-      taskController,
+      task.controller,
       false
     )
-    taskController.awaitResult // Wait until the task can resume
+    task.controller.await() // Wait until the task can resume
 
   def reset(): Unit =
     lock.lock()
@@ -376,7 +365,7 @@ object Scheduler {
       done = false
       readyTasks = List()
       cnt = 0
-      rootTask.id.reset()
+      rootTask.controller.id.reset()
       schedule = List()
       hasAllTasks = false
       debug = false
@@ -492,9 +481,9 @@ object Scheduler {
     rate >= acceptRate
   }
 
-  private[mccct] def throwError(e: Throwable)(using task: Task): Unit = {
+  private[mccct] def throwError(e: Throwable, ctrl: Controller): Unit = {
     numErrors.incrementAndGet() // If an error is thrown, increment the number of errors we have encountered
-    finish(task)                // Then signal the scheduler that this task has finished (allowing for termination)
+    finish(ctrl)                // Then signal the scheduler that this task has finished (allowing for termination)
   }
 
   def readSchedule(fileName: String): List[String] = {

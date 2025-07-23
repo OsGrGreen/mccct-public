@@ -2,7 +2,7 @@ package mccct
 
 import java.util.concurrent.atomic.AtomicInteger
 
-class Id(val parent: Task, val isEnd: Boolean = false):
+class Id(val parent: Controller, val isEnd: Boolean = false):
 
   var numChildren: AtomicInteger = AtomicInteger(0)
   private val id: String         = {
