@@ -190,7 +190,6 @@ class SmokerTest {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
-        println("Got error!")
+      case e: DeadlockException => ()
   }
 }

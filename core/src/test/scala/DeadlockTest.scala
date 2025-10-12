@@ -67,7 +67,7 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(Scheduler.getNumErrors() > 0)
         Scheduler.threads.map((t, c) => assert(!t.isAlive))
         assert(true)
@@ -125,7 +125,7 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(Scheduler.getNumErrors() > 0)
         Scheduler.threads.map((t, c) => assert(!t.isAlive))
         assert(true)
@@ -174,7 +174,7 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(Scheduler.getNumErrors() > 0)
         Scheduler.threads.map((t, c) => assert(!t.isAlive))
         assert(true)
@@ -212,7 +212,7 @@ class DeadlockTest() {
                   barr.await()
                   testLock1.lockInterruptibly()
                   try
-                    ()
+                    () // Unreachable 
                   finally
                     testLock1.unlock()
                 finally testLock2.unlock()
@@ -228,11 +228,9 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(Scheduler.getNumErrors() > 0)
-        Scheduler.threads.map((t, c) => assert(!t.isAlive))
-        assert(true)
-      case _ => assert(false)
+      case e => assert(false)
   }
 
   @Test
@@ -251,7 +249,7 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(Scheduler.getNumErrors() > 0)
         assert(true)
       case _ => assert(false)
@@ -274,7 +272,7 @@ class DeadlockTest() {
       Scheduler.awaitTermination()
       assert(false)
     catch
-      case e: InterruptedException =>
+      case e: DeadlockException =>
         assert(true)
         assert(Scheduler.getNumErrors() > 0)
       case _ => assert(false)

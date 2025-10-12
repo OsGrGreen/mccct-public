@@ -109,16 +109,23 @@ object CoverageTracker {
       prevMap: TrieMap[String, Int]
   ): TrieMap[String, Int] = {
     // Run the function with the given algorithm
-    Scheduler.start(alg, shouldPrint = false, sequential = sequential)
-    testFunction
-    Scheduler.awaitTermination()
-    // If the scheduler has encountered any errors this run, then the getNumErrors will be non-zero
-    // If this is the case then we should add which markers were hit (and show that it was an erroneous interleaving)
-    // Since only the markers that were hit in this specific interleaving is of note, remove the hit markers from previous interleavings
-    if Scheduler.getNumErrors() != 0 then addSchedule(diff(markerMap, prevMap))
-    // "Reset" prevMap to an empty map and add the mappings from markerMap
-    // Only setting `prevMap = markerMap` will make changes to markerMap affect prevMap
-    TrieMap.empty[String, Int] ++ markerMap
+    try {
+      Scheduler.start(alg, shouldPrint = false, sequential = sequential)
+      testFunction
+      Scheduler.awaitTermination()
+      // If the scheduler has encountered any errors this run, then the getNumErrors will be non-zero
+      // If this is the case then we should add which markers were hit (and show that it was an erroneous interleaving)
+      // Since only the markers that were hit in this specific interleaving is of note, remove the hit markers from previous interleavings
+      if Scheduler.getNumErrors() != 0 then addSchedule(diff(markerMap, prevMap))
+      // "Reset" prevMap to an empty map and add the mappings from markerMap
+      // Only setting `prevMap = markerMap` will make changes to markerMap affect prevMap
+      TrieMap.empty[String, Int] ++ markerMap
+    } catch {
+      case e: Exception => {
+        addSchedule(diff(markerMap, prevMap))
+        return TrieMap.empty[String, Int] ++ markerMap
+      }
+    }
   }
 
   /** Runs a function a number of times and returns how many times each marker was hit
