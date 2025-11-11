@@ -24,3 +24,14 @@ class Id(val parent: Controller, val isEnd: Boolean = false):
   private[mccct] def reset(): Unit = numChildren = AtomicInteger(0)
 
   def getParent(): String = parent.id.getId()
+
+object Id {
+
+  def isChildrenInList(list: List[Controller], parent: Controller): Boolean =
+    val parentId = parent.id.getId()
+    list.exists { c =>
+      val childId = c.id.getId()
+      childId != parentId && childId.startsWith(parentId)
+    }
+
+}

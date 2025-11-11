@@ -5,6 +5,7 @@ import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
 
 import scala.util.{Try, Success, Failure}
 import gears.async
+// Use timer / timertask instead of gears `Scheduler`
 import gears.async.{Cancellable, Scheduler}
 import gears.async.default.given
 

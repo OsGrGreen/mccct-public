@@ -2,9 +2,20 @@ package mccct
 
 import java.util.concurrent.CyclicBarrier
 import gears.async.Cancellable
+import java.util.concurrent.atomic.AtomicInteger
+import scala.annotation.switch
 
-class Controller(val parent: Controller, val isEnd: Boolean = false) {
+enum ControllerType:
+  case Async, Finish, Base
+
+class Controller(
+    val parent: Controller,
+    val isEnd: Boolean = false,
+    val controllerType: ControllerType = ControllerType.Base
+) {
   val id: Id = Id(parent, isEnd)
+
+  val totalChildren = new AtomicInteger(0)
 
   var ready: Boolean = false
 
@@ -36,6 +47,12 @@ class Controller(val parent: Controller, val isEnd: Boolean = false) {
   override def equals(x: Any): Boolean = x match
     case ctrl: Controller => ctrl.id.getId() == this.id.getId()
     case _                => false
+
+  private[mccct] def closestType(parentType: ControllerType): Controller =
+    this.controllerType match
+      case `parentType`     => return this
+      case _ if this.isRoot => return this
+      case _                => return parent.closestType(parentType)
 
   private[mccct] def startThread(task: Task): Thread =
     thread = Thread.ofVirtual().start(task)
