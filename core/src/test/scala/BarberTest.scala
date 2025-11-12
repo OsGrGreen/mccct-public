@@ -37,7 +37,7 @@ class BarberTest {
     var barberIsSleeping = true
     var servedCustomer   = 0
 
-    def checkTermination()(using scheduler: Scheduler, ac: async.Async, task: Task): Unit = {
+    def checkTermination()(using scheduler: Scheduler, ac: async.Async, controller: Controller): Unit = {
       scheduler.schedule(
         FiniteDuration(4, SECONDS),
         new Runnable {
@@ -52,7 +52,7 @@ class BarberTest {
       )
     }
 
-    def barber()(using ac: async.Async, task: Task): Unit =
+    def barber()(using async.Async, Controller): Unit =
       while (!done.get()) { // Run until timeout
         checkSuspend()
         lock.lock()
@@ -81,7 +81,7 @@ class BarberTest {
         Thread.sleep(rnd.nextLong(25)) // Simulate the hair cutting
       }
 
-    def okcustomer(id: Int)(using ac: async.Async, task: Task): Unit =
+    def okcustomer(id: Int)(using async.Async, Controller): Unit =
       lock.lock()
       try
         if freeSeats > waitingQueue.size then      // If there is space then go into the shop
@@ -96,7 +96,7 @@ class BarberTest {
       finally
         lock.unlock()
 
-    def badcustomer(id: Int)(using ac: async.Async, task: Task): Unit =
+    def badcustomer(id: Int)(using async.Async, Controller): Unit =
       checkSuspend()
       if waitingQueue.size < freeSeats && !done.get() then
         checkSuspend()

@@ -9,10 +9,10 @@ import scala.concurrent.duration.{FiniteDuration, SECONDS}
 
 trait Buffer[T] {
   @throws[InterruptedException]
-  def put(item: T)(using ac: async.Async, task: Task): Unit
+  def put(item: T)(using async.Async, Controller): Unit
 
   @throws[InterruptedException]
-  def get()(using ac: async.Async, task: Task): T
+  def get()(using async.Async, Controller): T
 }
 
 class BufferImpl[T: ClassTag](val size: Int) extends Buffer[T] {
@@ -26,7 +26,7 @@ class BufferImpl[T: ClassTag](val size: Int) extends Buffer[T] {
   val cond = lock.newCondition()
 
   @throws[InterruptedException]
-  override def put(item: T)(using ac: async.Async, task: Task): Unit =
+  override def put(item: T)(using async.Async, Controller): Unit =
     checkSuspend(0, true, delay = FiniteDuration(5, SECONDS))
     lock.lock()
     try {
@@ -43,7 +43,7 @@ class BufferImpl[T: ClassTag](val size: Int) extends Buffer[T] {
     }
 
   @throws[InterruptedException]
-  override def get()(using ac: async.Async, task: Task): T =
+  override def get()(using async.Async, Controller): T =
     checkSuspend(2, true, delay = FiniteDuration(5, SECONDS))
     this.synchronized {}
     try {

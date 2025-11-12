@@ -3,7 +3,7 @@ package mccct
 import gears.async
 
 class Consumer(buf: Buffer[Int]) {
-  def run()(using ac: async.Async, task: Task): Unit =
+  def run()(using async.Async, Controller): Unit =
     try {
       var i = 0
       while (i <= 1000) {

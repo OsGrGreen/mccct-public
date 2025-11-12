@@ -17,3 +17,17 @@ lazy val sample = (project in file("sample"))
     libraryDependencies += "ch.epfl.lamp" %% "gears" % "0.2.0"
   )
   .dependsOn(core)
+
+
+lazy val savina = (project in file("savina_benchmarks"))
+  .settings(
+    name := "Savina",
+    libraryDependencies ++= Seq(
+      "org.apache.pekko" %% "pekko-actor" % "1.2.1",
+      "org.apache.pekko" %% "pekko-stream" % "1.2.1"
+    ),
+    //testOptions += Tests.Argument(TestFrameworks.JUnit, "-q", "-v"),
+    Compile / scalaSource := baseDirectory.value / "src" / "main" / "scala",
+    Compile / javaSource  := baseDirectory.value / "src"/ "main" / "java",
+    Test / scalaSource    := baseDirectory.value / "src" / "test" / "scala",
+  ).dependsOn(core)

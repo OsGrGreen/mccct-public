@@ -3,7 +3,7 @@ package mccct
 import gears.async
 
 class Producer(buf: Buffer[Int], modCount: Int) {
-  def run()(using ac: async.Async, task: Task): Unit =
+  def run()(using async.Async, Controller): Unit =
     try {
       var tmp = 0
       var i   = 0
