@@ -14,10 +14,6 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CyclicBarrier
 
-given rootTask: Task = new Task(Controller(null)) {
-  def run() = ???
-}
-
 object Future {
 
   /** Function for parent task to add its .0. child task
@@ -84,6 +80,12 @@ abstract class Task(val controller: Controller, init: Boolean = true) extends Ru
 
   override def toString(): String =
     s"[${controller.id.getId()},${controller.id.getNumChildren()} , ${isRoot}, ${isTop}]"
+}
+
+object Task {
+  given rootTask: Task = new Task(Controller(null)) {
+    def run() = ???
+  }
 }
 
 class Future[T](underlying: async.Future[T]) {
@@ -365,7 +367,7 @@ object Scheduler {
       done = false
       readyTasks = List()
       cnt = 0
-      rootTask.controller.id.reset()
+      Task.rootTask.controller.id.reset()
       schedule = List()
       hasAllTasks = false
       debug = false

@@ -7,7 +7,6 @@ import gears.async.default.given
 
 import mccct.{Scheduler, Task, Future, FixedSchedule}
 import mccct.Scheduler.checkSuspend
-import mccct.rootTask
 
 object MapInsertRace {
 
