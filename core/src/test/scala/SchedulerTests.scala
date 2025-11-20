@@ -14,8 +14,10 @@ import gears.async.default.given
 @RunWith(classOf[JUnit4])
 class SchedulerTests() {
 
-  /** A test that tests if all futures are executed when using the RandomWalk algorithm In this test there are no
-    * awaits, however all futures should still be executed, and completed before the main thread can continue
+  /** A test that tests if all futures are executed when using the
+    * `RandomWalk` algorithm. In this test there are no awaits,
+    * however, all futures should still be executed and completed
+    * before the main thread can continue after `awaitTermination`.
     */
   @Test
   def exploreAllRandomWalkTest(): Unit =
@@ -48,10 +50,12 @@ class SchedulerTests() {
     assert(list.get().size * 2 == Scheduler.getSchedule().size) // 5 futures + 5 ".0." children
   }
 
-  /** A test that makes sure that all futures are executed when using the RandomWalk algorithm This test has nested
-    * futures and multiple awaits. This allows us to say some things about the execution, like if we await for the
-    * top-level task, then its child task has to be completed before we can continue (if the parent task waits for the
-    * child task)
+  /** A test that makes sure that all futures are executed when using
+    * the `RandomWalk` algorithm. This test has nested futures and
+    * multiple awaits. This allows us to say some things about the
+    * execution, like if we await the top-level task, then its child
+    * task has to be completed before we can continue (if the parent
+    * task waits for the child task).
     */
   @Test
   def randomWalkWithAwaitTest(): Unit =
@@ -80,7 +84,9 @@ class SchedulerTests() {
 
     Scheduler.awaitTermination()
     val finalList = list.get().reverse
-    // f2 could theoretically be executed at any point, which means that we can not say anything about where 3 (in list) or "2." (in schedule history) should appear
+    // f2 could theoretically be executed at any point, which means
+    // that we cannot say anything about where 3 (in the list) or "2."
+    // (in the schedule history) should appear
     assert(finalList.size == 4)
     assert(Scheduler.getSchedule().size == 10) // 4 Futures + 2 awaits + 4 ".0." children
     assert(appearsAfter(2, 1, finalList))
@@ -88,8 +94,8 @@ class SchedulerTests() {
     assert(appearsAfter(4, 2, finalList))
   }
 
-  /** A test that makes sure that the reset function works as expected. This means that all previous information is
-    * cleaned with reset
+  /** A test that makes sure that `reset` works as expected. This means
+    * that `reset` cleans all previous information.
     */
   @Test
   def resetTest(): Unit = {
@@ -113,10 +119,10 @@ class SchedulerTests() {
     assert(!Scheduler.getDone())
   }
 
-  /** A test that makes sure that if a top-level futures await is hit before all top-level futures have been started
-    * then:
-    *   1. All top-level futures are executed
-    *   2. Futures are executed in the expected order
+  /** A test that makes sure that if a top-level future's await is hit
+    * before all top-level futures have been started then:
+    *   1. all top-level futures are executed;
+    *   2. futures are executed in the expected order.
     */
   @Test
   def awaitTestSeq(): Unit =
@@ -141,17 +147,21 @@ class SchedulerTests() {
 
     Scheduler.awaitTermination()
     val schedule = Scheduler.getSchedule()
-    // We do not know in which order f2 and f1 will update the list, therefore we can not say anthing about the relation between the two
+    // We do not know in which order f2 and f1 will update the list,
+    // therefore we cannot say anthing about the relation between
+    // the two
     assert(
+      // Since f3 is only executed after f1 has finished then that should also be reflected in the scheduler's schedule
       appearsAfter("3.", "1.", schedule)
-    ) // Since f3 is only executed after f1 has finished then that should also be reflected in the schedulers schedule
+    )
     assert(appearsAfter(3, 1, list.get().reverse))
     assert(list.get().size == 3)
     assert(schedule.size == 7) // 3 top-level tasks + root task + 3 ".0." child tasks
   }
 
-  /** A test that makes sure that tasks are not executed before it is needed In this case this means that all top-level
-    * tasks have to be started before execution is allowed
+  /** A test that makes sure that tasks are not executed before it is
+    * necessary. In this case this means that all top-level tasks have
+    * to be started before execution is allowed.
     */
   @Test
   def noAwaitTest(): Unit =
@@ -207,7 +217,6 @@ class SchedulerTests() {
 
   @Test
   def stressExistingTests(): Unit = {
-    // There seems to be a known error here in which the Scheduler can become stuck...
     println("Starting stress tests parallel")
     var counter = 1_000
     while (counter > 0) {
@@ -230,7 +239,8 @@ class SchedulerTests() {
   def reliableFunctionTest(): Unit = {
     val s = List("1.", "2.", "1.", "2.", "1.", "2.", "2.", "2.0.", "1.", "1.0.", "", "")
     def reliableFunc(): (Boolean, Boolean) = {
-      val map                                                                 = ConcurrentHashMap[Int, Int]()
+      val map = ConcurrentHashMap[Int, Int]()
+
       def insert(key: Int, value: Int)(using a: Async, parent: Task): Boolean = {
         checkSuspend()
         if (!map.containsKey(key))
@@ -243,37 +253,30 @@ class SchedulerTests() {
           checkSuspend()
           false
       }
-      var v1 = false
-      var v2 = false
-      Async.blocking:
-        val t1 = Future { insert(1, 0) }
-        val t2 = Future { insert(1, 1) }
 
-        v1 = t1.await
-        v2 = t2.await
+      val both = Async.blocking:
+        val f1 = Future { insert(1, 0) }
+        val f2 = Future { insert(1, 1) }
+        (f1.await, f2.await)
 
-      return (v1, v2)
+      both
     }
-    var r = (false, false)
+
     Scheduler.start(FixedSchedule(s), shouldPrint = false, sequential = true)
-    r = reliableFunc()
+    val res = reliableFunc()
     Scheduler.awaitTermination()
     val schedule = Scheduler.getSchedule()
-    assert(r._1)
-    assert(r._2)
+    assert(res == (true, true))
     assert(Scheduler.checkReliability(reliableFunc(), (true, true), schedule, 10, 1.0, true))
   }
 
-  /** A function that determines if an element occurs before or after another element
+  /** A function that determines if an element occurs before or after
+    * another element in a given list.
     *
-    * @param target,
-    *   the target element
-    * @param after,
-    *   the element which target should appear after
-    * @param list,
-    *   the list in which the elements appears
-    * @return
-    *   true if target appears after after, and false otherwise
+    * @param target  the target element
+    * @param after   the element which target should appear after
+    * @param list    the list in which the elements appear
+    * @return        true if target appears after after, and false otherwise
     */
   private def appearsAfter[T](target: T, after: T, list: List[T]): Boolean = {
     val afterIndex  = list.indexOf(after)
