@@ -18,7 +18,7 @@ class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
     // 2. Starts a new thread that locks the lock
     // This will make the running thread stall until the lock is unlocked (which will never happen in sequential execution)
     // For parallel execution we can ignore this and continue as usual
-    lockLock.lock()
+    lockLock.lockInterruptibly()
     // Some tasks, like the timeout timer should not get affected by the sequential execution, therefore they should be able to skip this step and continuously wait
     while (superLock.isLocked() && Scheduler.isSequential && !hasPrio) {
       // Decrement the counter, which can allow another task to start.
@@ -34,14 +34,14 @@ class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
       lockLock.unlock()
       // wait for scheduler to resume task
       task.controller.await()
-      lockLock.lock()
+      lockLock.lockInterruptibly()
     }
     // In parallel mode we can lock as usual, in sequential mode there is no chance for race condition since only one task is running at a time.
-    superLock.lock()
+    superLock.lockInterruptibly()
     lockLock.unlock()
 
   def unlock()(using task: Task): Unit =
-    lockLock.lock()
+    lockLock.lockInterruptibly()
     try
       superLock.unlock()
     finally lockLock.unlock()
@@ -78,7 +78,7 @@ class SchedulerCondition(val superLock: SchedulerLock) {
   }
 
   def addToQueue(barrier: Controller): Unit =
-    queueLock.lock()
+    queueLock.lockInterruptibly()
     try
       if !awaitQueue.contains(barrier) then awaitQueue = barrier :: awaitQueue
     finally
@@ -87,7 +87,7 @@ class SchedulerCondition(val superLock: SchedulerLock) {
   /** Signals the first tasks barrier in the queue to stop waiting and continue execution
     */
   def signalFirstInQueue(): Unit =
-    queueLock.lock()
+    queueLock.lockInterruptibly()
     try
       if awaitQueue.nonEmpty then
         val bar = awaitQueue.head
@@ -103,7 +103,7 @@ class SchedulerCondition(val superLock: SchedulerLock) {
   /** A function that signals all waiting tasks to continue. Used to mirror the behaviour of `signalAll()`.
     */
   def signalQueue(): Unit =
-    queueLock.lock()
+    queueLock.lockInterruptibly()
     try
       awaitQueue.map(b =>
         b.awaitCondition() // Wait for the barrier

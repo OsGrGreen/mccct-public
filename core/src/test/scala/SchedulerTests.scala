@@ -4,12 +4,14 @@ package test
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicReference, AtomicInteger}
 import java.util.concurrent.ConcurrentHashMap
 import Scheduler.checkSuspend
 
 import gears.async.Async
 import gears.async.default.given
+import java.util.concurrent.locks.{Lock, ReentrantLock}
+import java.util.concurrent.CyclicBarrier
 
 @RunWith(classOf[JUnit4])
 class SchedulerTests() {
@@ -268,6 +270,7 @@ class SchedulerTests() {
     val schedule = Scheduler.getSchedule()
     assert(res == (true, true))
     assert(Scheduler.checkReliability(reliableFunc(), (true, true), schedule, 10, 1.0, true))
+    assert(Scheduler.checkErrors(true))
   }
 
   /** A function that determines if an element occurs before or after
