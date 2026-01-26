@@ -24,7 +24,8 @@ class Controller(val parent: Controller, val isEnd: Boolean = false) {
 
   private val conditionBarrier = new CyclicBarrier(2)
 
-  def awaitCondition() = conditionBarrier.await()
+  def awaitCondition() =
+    if !conditionBarrier.isBroken then conditionBarrier.await()
 
   def resetCondition() = conditionBarrier.reset()
 
