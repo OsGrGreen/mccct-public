@@ -304,7 +304,7 @@ object Scheduler {
       termination
         .awaitUninterruptibly() // Since the main thread has the lock, the termination signal can not be sent before the await
       // If a timeout has happened an error should be thrown
-      if hasTimedOut then throw new InterruptedException
+      if hasTimedOut then throw new DeadlockException
     finally
       schedule =
         schedule.reverse // Since the tasks are prepended to the schedule history, the list must be reversed to get history in the correct order
@@ -424,7 +424,7 @@ object Scheduler {
   private def timeoutThreads(id: Int, write: Boolean, ctrl: Controller): Unit =
     lock.lockInterruptibly()
     try
-      readyTasks = readyTasks.filter(t => t.isRoot)
+      readyTasks = List()
       println(
         s"A possible deadlock has occured for ctrl ${ctrl}\nThe `checkSuspend` that triggered this timeout had id: ${id}"
       )
