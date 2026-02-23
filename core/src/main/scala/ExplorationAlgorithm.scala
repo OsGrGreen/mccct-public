@@ -7,19 +7,23 @@ trait ExplorationAlgorithm:
 
 object FifoAlgorithm extends ExplorationAlgorithm:
   def getNext(readyTasks: List[Controller]): Option[List[Controller]] =
-    readyTasks.headOption.map(List(_))
+    if readyTasks.length == 1 then Some(readyTasks)
+    else readyTasks.headOption.map(List(_))
+
+  def prepareNext(taskHistory: List[String]): Unit = {}
+
+object NoopAlgorithm extends ExplorationAlgorithm:
+  def getNext(readyTasks: List[Controller]): Option[List[Controller]] = Some(readyTasks)
 
   def prepareNext(taskHistory: List[String]): Unit = {}
 
 object RandomWalk extends ExplorationAlgorithm:
-  def getNext(readyTasks: List[Controller]): Option[List[Controller]] = {
-    val n = 1
-
-    val shuffled = util.Random.shuffle(readyTasks)
-    val selected = shuffled.take(n)
-
-    Some(selected)
-  }
+  def getNext(readyTasks: List[Controller]): Option[List[Controller]] =
+    if readyTasks.length == 1 then Some(readyTasks)
+    else {
+      val shuffled = util.Random.shuffle(readyTasks)
+      Some(List(shuffled.head))
+    }
 
   def prepareNext(taskHistory: List[String]): Unit = {}
 
@@ -36,3 +40,5 @@ class FixedSchedule(var targetSchedule: List[String]) extends ExplorationAlgorit
   }
 
   def prepareNext(taskHistory: List[String]): Unit = {}
+
+  def hasNext(): Boolean = true

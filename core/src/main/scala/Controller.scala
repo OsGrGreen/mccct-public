@@ -6,14 +6,21 @@ import java.util.concurrent.atomic.AtomicInteger
 import scala.annotation.switch
 
 enum ControllerType:
-  case Async, Finish, Base
+  case Async, Finish, Base, Actor
+
+object Controller {
+
+  given rootController: Controller = Controller(null)
+
+}
 
 class Controller(
     val parent: Controller,
     val isEnd: Boolean = false,
     val controllerType: ControllerType = ControllerType.Base
 ) {
-  val id: Id = Id(parent, isEnd)
+  val id: Id        = Id(parent, isEnd)
+  var globalId: Int = -1
 
   val totalChildren = new AtomicInteger(0)
 
@@ -42,7 +49,7 @@ class Controller(
 
   final def isRoot = parent == null // Signifies if it is root, which means that it controls the main thread
 
-  override def toString(): String = s"[${id.getId()}, ${thread}]"
+  override def toString(): String = s"[${id.getId()}]"
 
   override def equals(x: Any): Boolean = x match
     case ctrl: Controller => ctrl.id.getId() == this.id.getId()
@@ -54,8 +61,8 @@ class Controller(
       case _ if this.isRoot => return this
       case _                => return parent.closestType(parentType)
 
-  private[mccct] def startThread(task: Task): Thread =
-    thread = Thread.ofVirtual().start(task)
-    thread
+  private[mccct] def startThread(task: Runnable, maxId: Int): Thread =
+    globalId = maxId
+    Thread.ofVirtual().start(task)
 
 }

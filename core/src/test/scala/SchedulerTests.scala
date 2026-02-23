@@ -241,9 +241,8 @@ class SchedulerTests() {
   def reliableFunctionTest(): Unit = {
     val s = List("1.", "2.", "1.", "2.", "1.", "2.", "2.", "2.0.", "1.", "1.0.", "", "")
     def reliableFunc(): (Boolean, Boolean) = {
-      val map = ConcurrentHashMap[Int, Int]()
-
-      def insert(key: Int, value: Int)(using a: Async, parent: Task): Boolean = {
+      val map                                                                 = ConcurrentHashMap[Int, Int]()
+      def insert(key: Int, value: Int)(using Async, Controller): Boolean = {
         checkSuspend()
         if (!map.containsKey(key))
           checkSuspend()

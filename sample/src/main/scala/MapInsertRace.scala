@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 import gears.async.Async
 import gears.async.default.given
 
-import mccct.{Scheduler, Task, Future, FixedSchedule}
+import mccct.{Scheduler, Future, FixedSchedule, Controller}
 import mccct.Scheduler.checkSuspend
 
 object MapInsertRace {
@@ -15,7 +15,7 @@ object MapInsertRace {
   def concurrentInsert(): (Boolean, Boolean) = {
     val map = ConcurrentHashMap[Int, Int]()
 
-    def insert(key: Int, value: Int)(using a: Async, parent: Task): Boolean = {
+    def insert(key: Int, value: Int)(using a: Async, parent: Controller): Boolean = {
       if !map.containsKey(key) then
         checkSuspend()
         map.put(key, value)

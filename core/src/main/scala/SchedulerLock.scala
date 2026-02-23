@@ -12,7 +12,7 @@ class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
   // (b) acquire the lock
   val lockLock: Lock = new ReentrantLock
 
-  def lock(hasPrio: Boolean = false)(using ac: async.Async, task: Task): Unit =
+  def lock(hasPrio: Boolean = false)(using ac: async.Async, controller: Controller): Unit =
     // If the scheduler is running in sequential mode it can become stuck if:
     // 1. One non-running thread has the lock
     // 2. Starts a new thread that locks the lock
@@ -22,25 +22,25 @@ class SchedulerLock(val superLock: ReentrantLock = new ReentrantLock) {
     // Some tasks, like the timeout timer should not get affected by the sequential execution, therefore they should be able to skip this step and continuously wait
     while (superLock.isLocked() && Scheduler.isSequential && !hasPrio && !Scheduler.hasTimedOut) {
       // Decrement the counter, which can allow another task to start.
-      Scheduler.decrementSequential(task.controller)
+      Scheduler.decrementSequential(controller)
       // Create a new taskController for making the thread wait.
       // Submit the task and its controller, sending a queuechange signal,
       // and allows the same thread to try to acquire the lock again
       Scheduler.submit(
-        task.controller,
+        controller,
         false
       ) // Since the cnt of this task has already been accounted for do not increase the cnt again when this task is resubmitted to the scheduler
 
       lockLock.unlock()
       // wait for scheduler to resume task
-      task.controller.await()
+      controller.await()
       lockLock.lockInterruptibly()
     }
     // In parallel mode we can lock as usual, in sequential mode there is no chance for race condition since only one task is running at a time.
     superLock.lockInterruptibly()
     lockLock.unlock()
 
-  def unlock()(using task: Task): Unit =
+  def unlock(): Unit =
     lockLock.lockInterruptibly()
     try
       superLock.unlock()
@@ -57,23 +57,23 @@ class SchedulerCondition(val superLock: SchedulerLock) {
   var awaitQueue: List[Controller] =
     List()
 
-  def await()(using ac: async.Async, task: Task): Unit = {
+  def await()(using ac: async.Async, controller: Controller): Unit = {
     // Add the barrier to the queue of conditions that are waiting to be signaled
-    addToQueue(task.controller)
+    addToQueue(controller)
     // Unlock the lock that the condition is set to track
     superLock.unlock()
     // When await is called, another task should be able to be started
-    Scheduler.decrementSequential(task.controller)
+    Scheduler.decrementSequential(controller)
     // Wait until this task has been signaled to continue
-    task.controller.awaitCondition()
+    controller.awaitCondition()
     // Create a new taskController and wait until the scheduler signals for this task to be resumed
     // inform CCT scheduler --> should move task to ready queue
     Scheduler.submit(
-      task.controller,
+      controller,
       false
     ) // Since the cnt of this task has already been accounted for do not increase the cnt again when this task is resubmitted to the scheduler
     // wait for scheduler to resume task
-    task.controller.await()
+    controller.await()
     superLock.lock()
   }
 
