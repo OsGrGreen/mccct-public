@@ -6,7 +6,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import java.util.concurrent.atomic.{AtomicReference, AtomicInteger}
 import java.util.concurrent.ConcurrentHashMap
-import Scheduler.checkSuspend
+import Scheduler.schedulePoint
 
 import gears.async.Async
 import gears.async.default.given
@@ -243,15 +243,15 @@ class SchedulerTests() {
     def reliableFunc(): (Boolean, Boolean) = {
       val map                                                                 = ConcurrentHashMap[Int, Int]()
       def insert(key: Int, value: Int)(using Async, Controller): Boolean = {
-        checkSuspend()
+        schedulePoint()
         if (!map.containsKey(key))
-          checkSuspend()
+          schedulePoint()
           map.put(key, value)
-          checkSuspend()
+          schedulePoint()
           true
         else
-          checkSuspend()
-          checkSuspend()
+          schedulePoint()
+          schedulePoint()
           false
       }
 

@@ -108,9 +108,6 @@ public class BenchmarkRunner {
                 System.out.printf(execTimeOutputFormat, benchmark.name(), " Iteration-" + i, execTimeMillis);
                 String schedule = Scheduler.scheduleToString();
                 System.out.printf(execScheduleOutputFormat, benchmark.name(), "Latest schedule (truncated): ", schedule);
-                if(outPutSchedule) {
-                    Scheduler.writeSchedule(benchmark.name()+"schedule.txt", Integer.toString(i));
-                }
                 rawSchedules.add(schedule);
                 benchmark.cleanupIteration(i + 1 == iterations, execTimeMillis);
                 PekkoActorState.reset();
