@@ -5,6 +5,7 @@ import java.util.concurrent.locks.{Lock, ReentrantLock, Condition}
 
 import scala.util.{Try, Success, Failure}
 import gears.async
+import async.Future.Promise
 // Use timer / timertask instead of gears `Scheduler`
 import gears.async.{Cancellable, Scheduler}
 import gears.async.default.given
@@ -51,33 +52,33 @@ object Future {
   }
 
   def apply[T](body: Controller ?=> T)(using a: async.Async, parent: Controller): Future[T] =
-    val p              = async.Future.Promise[T]()
-    val taskController = new Controller(parent)
-    val task           = new Runnable {
+    val p          = Promise[T]()
+    val controller = new Controller(parent)
+    val task       = new Runnable:
       def run() =
         try
-          taskController.await() // Wait for scheduler to let the task start
+          controller.await() // Wait for scheduler to let the task start
           // Using a promise is enough, since a task is started only once
           // Try to execute the body
-          val result = body(using taskController)
+          val result = body(using controller)
           // Schedule the end child before completing this future. It seems to behave more consistently
-          submitChild(taskController)
+          submitChild(controller)
           // Signal the scheduler that this function has finished. This will decrement the cnt by one and possibly terminate the scheduler
-          Scheduler.finish(taskController)
+          Scheduler.finish(controller)
           p.complete(Success(result))
         catch // If an error is encountered then notify the scheduler of this
           case NonFatal(e) =>
             // Call the throwError method, which increments the number of exceptions and finishes this task
-            Scheduler.throwError(e, taskController)
+            Scheduler.throwError(e, controller)
             p.complete(Failure(e)) // Complete the promise/future as a failure
           case e =>
-            Scheduler.throwError(e, taskController)
+            Scheduler.throwError(e, controller)
             p.complete(Failure(e)) // Complete the promise/future as a failure
-    }
+
     // Start task on virtual thread
-    Scheduler.startThread(task, taskController)
+    Scheduler.startThread(task, controller)
     // Submit new ready task to CCT scheduler
-    Scheduler.submit(taskController)
+    Scheduler.submit(controller)
     new Future(p.asFuture)
 }
 
@@ -181,29 +182,29 @@ object Scheduler {
             // Repeatedly be called until list is non empty
             // For parallel it should act as an IF
             // For sequential execution there can be multiple queueSignals that do not update readyTasks
-            while (!hasFinished && readyTasks.size == 0) {
+            while readyTasks.isEmpty && !hasFinished() do
               if debug then println(s"Waiting for task (${cnt}, ${readyTasks})")
               waitTasks() // Wait until we either have a task to execute, or if the scheduler has finished
-            }
+
             if debug then println(s"Got non-empty queue (${readyTasks.map(t => t)})")
             // If the scheduler reaches this one of two possbilities must be true
             // Either readyTasks is empty, which means that the queueChange signal was triggered because the scheduler should terminate
             // Or readyTasks is non-empty and the scheduler should continue execution
-            if debug then println("\t\tHas finished is: " + hasFinished)
-            if hasFinished then
+            if debug then println("\t\tHas finished is: " + hasFinished())
+            if hasFinished() then
               done = true
               termination.signal()
               return
             if debug then println(s"scheduler: size of task queue = ${readyTasks.size}")
-            val executionTasks = getNextTask(alg) // Get the next task as specified by the algorithm and its controller
+            val nextTasks = getNextTasks(alg) // Get the next tasks as specified by the algorithm and its controller
             // Execution tasks can be `None` if timeout happened while the scheduler was waiting for the correct task
-            executionTasks match
+            nextTasks match
               case Some(value) =>
                 readyTasks =
                   if readyTasks.eq(value) then List()
                   else
                     readyTasks diff value // Remove the task (and its controller) from the readyTasks list, since the same task should not be allowed to be started more than once
-                if debug then println("\t\tnumber of tasks to execute: " + executionTasks.size + "\n")
+                if debug then println("\t\tnumber of tasks to execute: " + nextTasks.size + "\n")
                 executeTask(value)
               case None =>
                 if debug then println("Terminating from timeout...")
@@ -220,9 +221,7 @@ object Scheduler {
     // If the scheduler has atleast one running task, then the scheduler must wait until it finishes before continuing
     // If the readytasks is empty, the scheduler must wait until we get a new task in it
     // If the scheduler has finished do not wait
-    while (activeTasks.get() > 0 && !hasFinished) {
-      queueChange.awaitUninterruptibly()
-    }
+    while activeTasks.get() > 0 && !hasFinished() do queueChange.awaitUninterruptibly()
     // Can get a signal and not updated list, in these cases the scheduler has `waitTasks`
 
   private[mccct] def triggerQueueChange(): Unit =
@@ -251,7 +250,7 @@ object Scheduler {
   // Furthermore, it is possible that the queueChange signal for termination has been sent at the end of the while loop
   // In this case the scheduler will get no more queueChange signals, therefore the scheduler must be able to skip the await (or it gets stuck)
   private def waitTasks(): Unit =
-    if (readyTasks.size == 0 && !hasFinished) then queueChange.awaitUninterruptibly()
+    if readyTasks.isEmpty && !hasFinished() then queueChange.awaitUninterruptibly()
 
   /** Tail-recursive function that returns the next task to execute
     *
@@ -260,7 +259,7 @@ object Scheduler {
     * @return
     *   the task to be executed
     */
-  private def getNextTask(alg: ExplorationAlgorithm): Option[List[Controller]] =
+  private def getNextTasks(alg: ExplorationAlgorithm): Option[List[Controller]] =
     alg.getNext(readyTasks) match
       case Some(l) =>
         Some(l)
@@ -269,9 +268,9 @@ object Scheduler {
         queueChange
           .awaitUninterruptibly() // Therefore, the scheduler should wait for an update until the algorithm returns a non-empty option
         if hasTimedOut then return None
-        if hasFinished then // Should not be possible
-          assert(false)     // Since readyTasks should always be non-empty if this line is reached
-        getNextTask(alg)
+        if hasFinished() then // Should not be possible
+          assert(false)       // Since readyTasks should always be non-empty if this line is reached
+        getNextTasks(alg)
       }
 
   def awaitTermination(requireAction: Boolean = false) =
@@ -280,7 +279,7 @@ object Scheduler {
       // The end of the main thread has been reached
       hasAllTasks = true // All top level tasks must now be available for the scheduler
       stuckState.signalAll()
-      if hasFinished
+      if hasFinished()
       then // If we have finished before calling awaitTermination Scheduler will be waiting for queueChange
         queueChange.signalAll() // Signal the Scheduler a queueChange to get termination signal
       termination
@@ -328,7 +327,7 @@ object Scheduler {
     finally
       lock.unlock()
 
-  private def hasFinished: Boolean =
+  private def hasFinished(): Boolean =
     cnt <= 0 && readyTasks.size == 0 && hasAllTasks && runningActors.get() == 0
 
   private[mccct] def submit(
@@ -352,7 +351,7 @@ object Scheduler {
     try
       if shouldDecrement then cnt -= 1
       activeTasks.getAndDecrement()
-      if hasFinished then    // If this was the last task to complete and all tasks have been loaded then
+      if hasFinished() then  // If this was the last task to complete and all tasks have been loaded then
         queueChange.signal() // If the Scheduler is in a state which should terminate, signal the queueChange
       else if isSequential then
         queueChange
@@ -437,7 +436,7 @@ object Scheduler {
         def run() =
           lock.lockInterruptibly()
           try
-            if !hasFinished then
+            if !hasFinished() then
               // If the controller is in readyTasks then it is not necessarily stuck, it may just be waiting for execution (for example in sequential mode).
               // In this case a timeout should not be thrown, instead restart the timeout.
               // Otherwise, call `timeoutThreads`
