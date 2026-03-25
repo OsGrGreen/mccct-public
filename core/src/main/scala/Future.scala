@@ -135,7 +135,7 @@ object Scheduler {
   private[mccct] var hasTimedOut = false
   private var cnt                = 0 // The number of currently running tasks, used for termination
   private var activeTasks = AtomicInteger(0) // The number of sequentially running tasks, used for sequential execution
-  private[mccct] var isSequential = false
+  private[mccct] var isSequential = true
   private val lock: Lock          = new ReentrantLock
   private val queueChange         = lock
     .newCondition() // Used to control the scheduler. Is either signaled when a new task is added to the readyTasks list or if the scheduler should terminate
@@ -158,7 +158,7 @@ object Scheduler {
 
   private var startedThreads = List[(Thread, Controller)]()
 
-  def start(alg: ExplorationAlgorithm = RandomWalk, shouldPrint: Boolean = false, sequential: Boolean = false): Unit =
+  def start(alg: ExplorationAlgorithm = RandomWalk, shouldPrint: Boolean = false, sequential: Boolean = true): Unit =
     Scheduler.reset() // In case the scheduler has been used before, reset it so no information is carried over
     lock.lock()
     try
@@ -390,23 +390,23 @@ object Scheduler {
 
   /** A function that is called to timeout the scheduler, terminating threads and writing the schedule.
     *
-    * The function will (if the scheduler has not already timed out) print a message identifying which `checkSuspend`
+    * The function will (if the scheduler has not already timed out) print a message identifying which `schedulePoint`
     * resulted in the timeout and what controller it was a part of.
     *
     * After this all non-root tasks, will be removed from the readyTasks list, and the schedule up until this point will
     * be written to file. Lastly, all running task threads will be interrupted.
     *
     * @param id,
-    *   the id of the `checkSuspend` that resulted in the timeout
+    *   the id of the `schedulePoint` that resulted in the timeout
     * @param ctrl,
-    *   the controller in which `checkSuspend` was called
+    *   the controller in which `schedulePoint` was called
     */
   private def timeoutThreads(id: Int, write: Boolean, ctrl: Controller): Unit =
     lock.lockInterruptibly()
     try
       readyTasks = List()
       println(
-        s"A possible deadlock has occured for ctrl ${ctrl}\nThe `checkSuspend` that triggered this timeout had id: ${id}"
+        s"A possible deadlock has occured for ctrl ${ctrl}\nThe `schedulePoint` that triggered this timeout had id: ${id}"
       )
       if write then writeSchedule()
       startedThreads.map((t, c) =>
@@ -420,7 +420,7 @@ object Scheduler {
   /** A function that creates a sheduled timeout task, suspending execution of running tasks.
     *
     * @param id,
-    *   the id of the `checkSuspend` that resulted in the timeout
+    *   the id of the `schedulePoint` that resulted in the timeout
     * @param delay,
     *   the delay which the scheduler should wait before timeout
     * @param task,
@@ -449,7 +449,7 @@ object Scheduler {
       }
     )
 
-  def checkSuspend(
+  def schedulePoint(
       id: Int = 0,
       timeout: Boolean = false,
       write: Boolean = true,
@@ -611,14 +611,21 @@ object Scheduler {
     for (lines <- bufferedSource.getLines()) {
       fileData = fileData + lines // Append each line to the fileData
     }
-    bufferedSource.close()      // Close the file
-    fileData.split(", ").toList // Split the data into the correct strings
+    bufferedSource.close()     // Close the file
+    fileData.split(",").toList // Split the data into the correct strings
   }
 
   def scheduleToString(): String = schedule.mkString(", ")
 
-  def writeSchedule(fileName: String = "", id: String = ""): Unit = {
+  def writeSchedule(fileName: String = "", id: String = "", potentialTarget: Option[List[String]] = None): Unit = {
     if debug then println("Writing schedule to file")
+    val target =
+      if potentialTarget.isDefined
+      then potentialTarget.get
+      else if !done then
+        // If the scheduler has not finished by the time this function is called, then it means that the schedule is in the reverse order
+        schedule.reverse
+      else schedule
 
     if !done then
       // If the scheduler has not finished by the time this function is called, then it means that the schedule is in the reverse order
@@ -634,8 +641,9 @@ object Scheduler {
 
     val fileWriter = new FileWriter(new File(file)) // Open and create a new file with the given name
     // An option to this is to write each task on a new line, this would make parsing the file into a oneliner, however long files can be a bit hard to work with.
-    fileWriter.write(schedule.mkString(", ")) // Write the task ids seperated by ", "
-    fileWriter.close()                        // Close the file writer
+    fileWriter.write(target.mkString(",")) // Write the task ids seperated by ","
+    fileWriter.write(", ")                 // Have space at the end to make it possible to read ",,"
+    fileWriter.close()                     // Close the file writer
 
     // Switch back the history schedule as it was before
     if !done then schedule = schedule.reverse

@@ -6,7 +6,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import java.util.concurrent.atomic.{AtomicReference, AtomicInteger}
 import java.util.concurrent.ConcurrentHashMap
-import Scheduler.checkSuspend
+import Scheduler.schedulePoint
 
 import gears.async.Async
 import gears.async.default.given
@@ -26,7 +26,7 @@ class DeadlockTest() {
 
       Async.blocking:
         val v1 = Future {
-          checkSuspend(1, true, false)
+          schedulePoint(1, true, false)
           testLock1.lockInterruptibly()
           try
             barr.await()
@@ -36,10 +36,10 @@ class DeadlockTest() {
             finally
               testLock2.unlock()
           finally testLock1.unlock()
-          checkSuspend()
+          schedulePoint()
         }
         val v2 = Future {
-          checkSuspend(2, true, false)
+          schedulePoint(2, true, false)
           testLock2.lockInterruptibly()
           try
             barr.await()
@@ -49,7 +49,7 @@ class DeadlockTest() {
             finally
               testLock1.unlock()
           finally testLock2.unlock()
-          checkSuspend()
+          schedulePoint()
         }
         val v3 = Future {
           barr.await()
@@ -84,7 +84,7 @@ class DeadlockTest() {
 
       Async.blocking:
         val v1 = Future {
-          checkSuspend(1, true, false)
+          schedulePoint(1, true, false)
           testLock1.lockInterruptibly()
           try
             barr.await()
@@ -94,10 +94,10 @@ class DeadlockTest() {
             finally
               testLock2.unlock()
           finally testLock1.unlock()
-          checkSuspend()
+          schedulePoint()
         }
         val v2 = Future {
-          checkSuspend(2, true, false)
+          schedulePoint(2, true, false)
           testLock2.lockInterruptibly()
           try
             barr.await()
@@ -107,7 +107,7 @@ class DeadlockTest() {
             finally
               testLock1.unlock()
           finally testLock2.unlock()
-          checkSuspend()
+          schedulePoint()
         }
         val v3 = Future {
           barr.await()
@@ -139,7 +139,7 @@ class DeadlockTest() {
       val barr      = new CyclicBarrier(2)
       Async.blocking:
         val v1 = Future {
-          checkSuspend(1, true, false)
+          schedulePoint(1, true, false)
           testLock1.lock()
           try
             barr.await()
@@ -150,10 +150,10 @@ class DeadlockTest() {
             finally
               testLock2.unlock()
           finally testLock1.unlock()
-          checkSuspend()
+          schedulePoint()
         }
         val v2 = Future {
-          checkSuspend(2, false)
+          schedulePoint(2, false)
           testLock2.lock()
           try
             barr.await()
@@ -163,7 +163,7 @@ class DeadlockTest() {
             finally
               testLock1.unlock()
           finally testLock2.unlock()
-          checkSuspend()
+          schedulePoint()
         }
     }
     try
@@ -189,7 +189,7 @@ class DeadlockTest() {
           Future {
             Future {
               val v1 = Future {
-                checkSuspend(1, true, false)
+                schedulePoint(1, true, false)
                 testLock1.lock()
                 try
                   barr.await()
@@ -200,10 +200,10 @@ class DeadlockTest() {
                   finally
                     testLock2.unlock()
                 finally testLock1.unlock()
-                checkSuspend()
+                schedulePoint()
               }
               val v2 = Future {
-                checkSuspend(2, false)
+                schedulePoint(2, false)
                 testLock2.lock()
                 try
                   barr.await()
@@ -213,7 +213,7 @@ class DeadlockTest() {
                   finally
                     testLock1.unlock()
                 finally testLock2.unlock()
-                checkSuspend()
+                schedulePoint()
               }
             }
           }
@@ -235,9 +235,9 @@ class DeadlockTest() {
     def testFunc(): Unit = {
       Async.blocking:
         val v1 = Future {
-          checkSuspend(1, true, false)
+          schedulePoint(1, true, false)
           Thread.sleep(5000)
-          checkSuspend()
+          schedulePoint()
         }
     }
     try
@@ -257,9 +257,9 @@ class DeadlockTest() {
     def testFunc(): Unit = {
       Async.blocking:
         val v1 = Future {
-          checkSuspend(1, true, false)
+          schedulePoint(1, true, false)
           Thread.sleep(5000)
-          checkSuspend()
+          schedulePoint()
         }
         v1.await
     }
