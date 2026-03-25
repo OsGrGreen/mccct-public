@@ -9,3 +9,7 @@ $ sbt
 > compile
 > test
 ```
+
+## Actor support
+
+For actor support see the experimental branch
